@@ -1,3 +1,18 @@
+
+import ForgotPasswordScreen from './screens/auth/ForgotPasswordScreen';
+import LoginScreen from './screens/auth/LoginScreen';
+import RegisterScreen from './screens/auth/RegisterScreen';
+import AusbildungsfortschrittScreen from './screens/student/AusbildungsfortschrittScreen';
+import MeineTermineScreen from './screens/student/MeineTermineScreen';
+import StudentDashboardScreen from './screens/student/StudentDashboardScreen';
+import TerminAnfragenScreen from './screens/student/TerminAnfragenScreen';
+import TerminDetailsScreen from './screens/student/TerminDetailsScreen';
+
+export default function App() {
+  return <TerminAnfragenScreen />;
+}
+/*
+
 import { useEffect } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { supabase } from './lib/supabase';
@@ -23,4 +38,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-});
+});*/

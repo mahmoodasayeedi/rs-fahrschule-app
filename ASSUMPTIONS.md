@@ -52,3 +52,6 @@ When RS Fahrschule answers, update this file AND the linked code/schema in the s
 ## How to use this file
 - New assumption discovered mid-build? Add it here immediately, don't just code around it silently.
 - Client answers a question? Move it to a "RESOLVED" section below with the date and source (email/call/etc.), and update the linked code in the same PR/commit.
+
+
+Update ASSUMPTIONS.md — log that we corrected the region assumption from Ireland to Frankfurt, with today's date, so this is documented rather than just fixed silentl
