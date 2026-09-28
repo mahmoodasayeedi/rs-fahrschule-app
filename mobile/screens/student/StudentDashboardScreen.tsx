@@ -1,5 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useState } from 'react';
 import {
+    Modal,
+    Pressable,
     SafeAreaView,
     ScrollView,
     StyleSheet,
@@ -7,6 +10,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { supabase } from '../../lib/supabase';
 
 const ORANGE = '#ff8800';
 const BACKGROUND = '#0d0d0f';
@@ -14,6 +18,14 @@ const CARD = '#171719';
 const BORDER = '#2f2f33';
 
 export default function StudentDashboardScreen() {
+    const [menuVisible, setMenuVisible] = useState(false);
+
+    async function handleLogout() {
+        setMenuVisible(false);
+        await supabase.auth.signOut();
+    }
+
+
     return (
         <SafeAreaView style={styles.safeArea}>
             <ScrollView
@@ -27,13 +39,31 @@ export default function StudentDashboardScreen() {
                         <Text style={styles.name}>Mahmooda</Text>
                     </View>
 
-                    <TouchableOpacity style={styles.profileButton}>
-                        <Ionicons
-                            name="person-outline"
-                            size={22}
-                            color="#ffffff"
-                        />
+                    <TouchableOpacity
+                        style={styles.profileButton}
+                        onPress={() => setMenuVisible(true)}
+                    >
+                        <Ionicons name="person-outline" size={22} color="#ffffff" />
                     </TouchableOpacity>
+
+                    <Modal
+                        visible={menuVisible}
+                        transparent
+                        animationType="fade"
+                        onRequestClose={() => setMenuVisible(false)}
+                    >
+                        <Pressable
+                            style={styles.menuOverlay}
+                            onPress={() => setMenuVisible(false)}
+                        >
+                            <View style={styles.menuCard}>
+                                <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
+                                    <Ionicons name="log-out-outline" size={20} color="#ff8800" />
+                                    <Text style={styles.menuItemText}>Abmelden</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </Pressable>
+                    </Modal>
                 </View>
 
                 {/* Welcome card */}
@@ -696,5 +726,36 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         fontSize: 12,
         marginTop: 35,
+    },
+    menuOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'flex-start',
+        alignItems: 'flex-end',
+        paddingTop: 70,
+        paddingRight: 20,
+    },
+
+    menuCard: {
+        backgroundColor: '#171719',
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: '#2a2a2e',
+        paddingVertical: 6,
+        minWidth: 180,
+    },
+
+    menuItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        paddingVertical: 14,
+        paddingHorizontal: 16,
+    },
+
+    menuItemText: {
+        color: '#ffffff',
+        fontSize: 15,
+        fontWeight: '600',
     },
 });
