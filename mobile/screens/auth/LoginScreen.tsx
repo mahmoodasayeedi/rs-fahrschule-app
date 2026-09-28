@@ -96,7 +96,7 @@ export default function LoginScreen() {
                 break;
             case 'office':
             case 'admin':
-                router.replace('(office/dashboard');
+                router.replace('/office/dashboard');
                 break;
             default:
                 setErrorMessage('Unbekannte Rolle. Bitte Support kontaktieren.');
