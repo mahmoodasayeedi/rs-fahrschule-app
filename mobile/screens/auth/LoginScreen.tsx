@@ -302,6 +302,7 @@ export default function LoginScreen() {
                         <TouchableOpacity
                             style={styles.registerButton}
                             activeOpacity={0.85}
+                            onPress={() => router.push('/register')}
                         >
                             <Text style={styles.registerButtonText}>
                                 Als Fahrschüler registrieren

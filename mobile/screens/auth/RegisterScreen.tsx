@@ -1,5 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
+import { useRouter } from 'expo-router';
+import { supabase } from '../../lib/supabase';
 import {
     KeyboardAvoidingView,
     Platform,
@@ -14,6 +16,37 @@ import {
 
 const ORANGE = '#ff8800';
 const BACKGROUND = '#0d0d0f';
+// "TT.MM.JJJJ" -> "JJJJ-MM-TT", or null if it isn't a real date in the past.
+function parseGermanDate(input: string): string | null {
+    const match = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(input.trim());
+    if (!match) return null;
+
+    const [, dd, mm, yyyy] = match;
+    const date = new Date(Date.UTC(Number(yyyy), Number(mm) - 1, Number(dd)));
+
+    const isRealDate =
+        date.getUTCFullYear() === Number(yyyy) &&
+        date.getUTCMonth() === Number(mm) - 1 &&
+        date.getUTCDate() === Number(dd);
+
+    if (!isRealDate || date > new Date() || Number(yyyy) < 1900) return null;
+    return `${yyyy}-${mm}-${dd}`;
+}
+
+function translateSignUpError(code?: string): string {
+    switch (code) {
+        case 'user_already_exists':
+            return 'Mit dieser E-Mail-Adresse existiert bereits ein Konto.';
+        case 'weak_password':
+            return 'Das Passwort ist zu schwach. Bitte ein anderes wählen.';
+        case 'email_address_invalid':
+            return 'Bitte eine gültige E-Mail-Adresse eingeben.';
+        case 'over_email_send_rate_limit':
+            return 'Zu viele Versuche. Bitte später erneut versuchen.';
+        default:
+            return 'Registrierung fehlgeschlagen. Bitte später erneut versuchen.';
+    }
+}
 
 export default function RegisterScreen() {
     const [firstName, setFirstName] = useState('');
@@ -35,9 +68,81 @@ export default function RegisterScreen() {
     const [showPassword, setShowPassword] = useState(false);
     const [acceptedPrivacy, setAcceptedPrivacy] = useState(false);
 
-    function handleRegister() {
-        // Supabase connection will be added later.
-        console.log('Student registration');
+    const router = useRouter();
+    const [loading, setLoading] = useState(false);
+    const [errorMessage, setErrorMessage] = useState('');
+    const [infoMessage, setInfoMessage] = useState('');
+
+    async function handleRegister() {
+        setErrorMessage('');
+        setInfoMessage('');
+
+        if (!firstName.trim() || !lastName.trim()) {
+            setErrorMessage('Bitte Vor- und Nachnamen eingeben.');
+            return;
+        }
+
+        const isoBirthDate = parseGermanDate(birthDate);
+        if (!isoBirthDate) {
+            setErrorMessage('Bitte ein gültiges Geburtsdatum im Format TT.MM.JJJJ eingeben.');
+            return;
+        }
+
+        if (!street.trim() || !postalCode.trim() || !city.trim()) {
+            setErrorMessage('Bitte die vollständige Adresse eingeben.');
+            return;
+        }
+
+        if (!licenceClass) {
+            setErrorMessage('Bitte eine Führerscheinklasse auswählen.');
+            return;
+        }
+
+        if (!email.trim()) {
+            setErrorMessage('Bitte eine E-Mail-Adresse eingeben.');
+            return;
+        }
+
+        if (password.length < 8) {
+            setErrorMessage('Das Passwort muss mindestens 8 Zeichen lang sein.');
+            return;
+        }
+
+        if (password !== confirmPassword) {
+            setErrorMessage('Die Passwörter stimmen nicht überein.');
+            return;
+        }
+
+        setLoading(true);
+        const { data, error } = await supabase.auth.signUp({
+            email: email.trim(),
+            password,
+            options: {
+                // Read by the handle_new_user database trigger.
+                data: {
+                    first_name: firstName.trim(),
+                    last_name: lastName.trim(),
+                    phone: phone.trim(),
+                    birth_date: isoBirthDate,
+                    address: `${street.trim()}, ${postalCode.trim()} ${city.trim()}`,
+                    license_class: licenceClass,
+                },
+            },
+        });
+        setLoading(false);
+
+        if (error) {
+            setErrorMessage(translateSignUpError(error.code));
+            return;
+        }
+
+        // With "Confirm email" on, there is no session until the link is clicked.
+        // With a session, the route guard sends the new student to their dashboard.
+        if (!data.session) {
+            setInfoMessage(
+                'Konto erstellt. Bitte bestätigen Sie Ihre E-Mail-Adresse über den Link, den wir Ihnen geschickt haben, und melden Sie sich danach an.'
+            );
+        }
     }
 
     return (
@@ -53,7 +158,7 @@ export default function RegisterScreen() {
                 >
                     {/* TOP */}
                     <View style={styles.topRow}>
-                        <TouchableOpacity style={styles.iconButton}>
+                        <TouchableOpacity style={styles.iconButton} onPress={() => router.replace('/')}>
                             <Ionicons name="arrow-back" size={22} color="#fff" />
                         </TouchableOpacity>
 
@@ -272,25 +377,24 @@ export default function RegisterScreen() {
                         </Text>
                     </TouchableOpacity>
 
+                    {/* MESSAGES */}
+                    {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+                    {infoMessage ? <Text style={styles.infoText}>{infoMessage}</Text> : null}
+
                     {/* REGISTER */}
                     <TouchableOpacity
                         style={[
                             styles.registerButton,
-                            !acceptedPrivacy &&
-                            styles.registerButtonDisabled,
+                            (!acceptedPrivacy || loading) && styles.registerButtonDisabled,
                         ]}
-                        disabled={!acceptedPrivacy}
+                        disabled={!acceptedPrivacy || loading}
                         onPress={handleRegister}
                     >
                         <Text style={styles.registerButtonText}>
-                            Konto erstellen
+                            {loading ? 'Konto wird erstellt…' : 'Konto erstellen'}
                         </Text>
 
-                        <Ionicons
-                            name="arrow-forward"
-                            size={22}
-                            color="#fff"
-                        />
+                        {!loading && <Ionicons name="arrow-forward" size={22} color="#fff" />}
                     </TouchableOpacity>
 
                     <View style={styles.loginRow}>
@@ -298,7 +402,7 @@ export default function RegisterScreen() {
                             Bereits registriert?
                         </Text>
 
-                        <TouchableOpacity>
+                        <TouchableOpacity onPress={() => router.replace('/')}>
                             <Text style={styles.loginLink}>
                                 Anmelden
                             </Text>
@@ -588,5 +692,19 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         fontSize: 13,
         marginTop: 35,
+    },
+    errorText: {
+        color: '#ff5c5c',
+        fontSize: 14,
+        textAlign: 'center',
+        marginBottom: 14,
+    },
+
+    infoText: {
+        color: '#79d495',
+        fontSize: 14,
+        textAlign: 'center',
+        lineHeight: 20,
+        marginBottom: 14,
     },
 });

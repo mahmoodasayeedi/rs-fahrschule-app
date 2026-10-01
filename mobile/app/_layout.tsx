@@ -12,6 +12,7 @@ const GROUP_BY_ROLE: Record<UserRole, string> = {
     admin: 'office',
 };
 
+
 function RouteGuard() {
     const { session, role, loading } = useAuth();
     const segments = useSegments();
@@ -25,8 +26,8 @@ function RouteGuard() {
             currentGroup === 'student' ||
             currentGroup === 'instructor' ||
             currentGroup === 'office';
-        const onLoginScreen = segments.length === 0;
-
+        // Screens meant for people who are not logged in yet.
+        const onAuthScreen = segments.length === 0 || currentGroup === 'register';
         // Logged out: protected areas are off limits.
         if (!session) {
             if (inProtectedArea) router.replace('/');
@@ -39,7 +40,7 @@ function RouteGuard() {
         const ownGroup = GROUP_BY_ROLE[role];
 
         // Logged in: skip the login screen, and stay out of other roles' areas.
-        if (onLoginScreen || (inProtectedArea && currentGroup !== ownGroup)) {
+        if (onAuthScreen || (inProtectedArea && currentGroup !== ownGroup)) {
             router.replace(`/${ownGroup}/dashboard`);
         }
     }, [session, role, loading, segments]);
