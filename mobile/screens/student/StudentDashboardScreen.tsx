@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
+    ActivityIndicator,
     Modal,
     Pressable,
     SafeAreaView,
@@ -17,14 +18,94 @@ const BACKGROUND = '#0d0d0f';
 const CARD = '#171719';
 const BORDER = '#2f2f33';
 
+const TRAINING_STATUS_LABELS: Record<string, string> = {
+    registered: 'Anmeldung',
+    theory_phase: 'Theoriephase',
+    practice_phase: 'Praxisphase',
+    ready_for_exam: 'Prüfungsreif',
+    licensed: 'Führerschein erhalten',
+    paused: 'Pausiert',
+    withdrawn: 'Abgemeldet',
+};
+
 export default function StudentDashboardScreen() {
     const [menuVisible, setMenuVisible] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [firstName, setFirstName] = useState('');
+    const [trainingStatus, setTrainingStatus] = useState<string | null>(null);
+    const [progressPercent, setProgressPercent] = useState(0);
+    const [nextStepsText, setNextStepsText] = useState('');
 
     async function handleLogout() {
         setMenuVisible(false);
         await supabase.auth.signOut();
     }
 
+    useEffect(() => {
+        let active = true;
+
+        async function loadDashboardData() {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+
+            const [profileResult, recordResult, progressResult, configResult] = await Promise.all([
+                supabase.from('profiles').select('first_name').eq('id', user.id).single(),
+                supabase.from('student_records').select('training_status').eq('profile_id', user.id).single(),
+                supabase.from('training_progress').select('*').eq('student_id', user.id).single(),
+                supabase.from('business_config').select('key, value').in('key', [
+                    'theory_lessons_minimum_b',
+                    'uberland_lessons_minimum_b',
+                    'autobahn_lessons_minimum_b',
+                    'night_lessons_minimum_b',
+                ]),
+            ]);
+
+            if (!active) return;
+
+            setFirstName(profileResult.data?.first_name ?? '');
+            setTrainingStatus(recordResult.data?.training_status ?? null);
+
+            const progress = progressResult.data;
+            const config = configResult.data;
+
+            if (progress && config) {
+                const thresholds = Object.fromEntries(config.map((c) => [c.key, Number(c.value)]));
+
+                const categories = [
+                    { done: progress.theory_lessons_completed, required: thresholds.theory_lessons_minimum_b || 14, label: 'Theorieunterricht' },
+                    { done: progress.uberland_lessons_count, required: thresholds.uberland_lessons_minimum_b || 5, label: 'Überlandfahrten' },
+                    { done: progress.autobahn_lessons_count, required: thresholds.autobahn_lessons_minimum_b || 4, label: 'Autobahnfahrten' },
+                    { done: progress.night_lessons_count, required: thresholds.night_lessons_minimum_b || 3, label: 'Nachtfahrten' },
+                ];
+
+                const percentPerCategory = categories.map((c) => Math.min(c.done / c.required, 1));
+                const overallPercent = Math.round(
+                    (percentPerCategory.reduce((sum, p) => sum + p, 0) / categories.length) * 100
+                );
+                setProgressPercent(overallPercent);
+
+                const remaining = categories.filter((c) => c.done < c.required);
+                setNextStepsText(
+                    remaining.length === 0
+                        ? 'Alle Pflichtfahrten sind abgeschlossen. Als Nächstes steht die praktische Prüfung an.'
+                        : `Als Nächstes fehlen noch: ${remaining.map((c) => `${c.label} (${c.done}/${c.required})`).join(', ')}.`
+                );
+            }
+
+            setLoading(false);
+        }
+
+        loadDashboardData();
+        return () => { active = false; };
+    }, []);
+
+    if (loading) {
+        return (
+            <SafeAreaView style={[styles.safeArea, { alignItems: 'center', justifyContent: 'center' }]}>
+                <ActivityIndicator color={ORANGE} />
+            </SafeAreaView>
+        );
+    }
 
     return (
         <SafeAreaView style={styles.safeArea}>
@@ -36,7 +117,7 @@ export default function StudentDashboardScreen() {
                 <View style={styles.header}>
                     <View>
                         <Text style={styles.smallText}>Guten Tag</Text>
-                        <Text style={styles.name}>Mahmooda</Text>
+                        <Text style={styles.name}>{firstName || '...'}</Text>
                     </View>
 
                     <TouchableOpacity
@@ -167,24 +248,23 @@ export default function StudentDashboardScreen() {
                             </Text>
 
                             <Text style={styles.progressStatus}>
-                                Praxisphase
+                                {trainingStatus ? TRAINING_STATUS_LABELS[trainingStatus] : '...'}
                             </Text>
                         </View>
 
                         <View style={styles.progressPercentCircle}>
                             <Text style={styles.progressPercent}>
-                                65%
+                                {progressPercent}%
                             </Text>
                         </View>
                     </View>
 
                     <View style={styles.progressBackground}>
-                        <View style={styles.progressFill} />
+                        <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
                     </View>
 
                     <Text style={styles.progressHint}>
-                        Du bist auf einem guten Weg. Als Nächstes fehlen noch
-                        Pflichtfahrten und die praktische Prüfung.
+                        {nextStepsText}
                     </Text>
                 </View>
 
@@ -592,7 +672,6 @@ const styles = StyleSheet.create({
     },
 
     progressFill: {
-        width: '65%',
         height: '100%',
         borderRadius: 5,
         backgroundColor: ORANGE,
