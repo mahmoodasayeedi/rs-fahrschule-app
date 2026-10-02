@@ -28,6 +28,32 @@ const TRAINING_STATUS_LABELS: Record<string, string> = {
     withdrawn: 'Abgemeldet',
 };
 
+const GERMAN_MONTHS = ['JAN', 'FEB', 'MÄR', 'APR', 'MAI', 'JUN', 'JUL', 'AUG', 'SEP', 'OKT', 'NOV', 'DEZ'];
+
+function formatLessonDate(isoDate: string): { day: string; month: string } {
+    const date = new Date(`${isoDate}T00:00:00`);
+    return {
+        day: date.getDate().toString().padStart(2, '0'),
+        month: GERMAN_MONTHS[date.getMonth()],
+    };
+}
+
+function formatTimeRange(startTime: string, durationMinutes: number): string {
+    const [hours, minutes] = startTime.split(':').map(Number);
+    const start = new Date(2000, 0, 1, hours, minutes);
+    const end = new Date(start.getTime() + durationMinutes * 60000);
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${pad(start.getHours())}:${pad(start.getMinutes())} – ${pad(end.getHours())}:${pad(end.getMinutes())} Uhr`;
+}
+
+type NextLesson = {
+    day: string;
+    month: string;
+    timeRange: string;
+    instructorName: string;
+    pickupLocation: string;
+};
+
 export default function StudentDashboardScreen() {
     const [menuVisible, setMenuVisible] = useState(false);
     const [loading, setLoading] = useState(true);
@@ -35,6 +61,7 @@ export default function StudentDashboardScreen() {
     const [trainingStatus, setTrainingStatus] = useState<string | null>(null);
     const [progressPercent, setProgressPercent] = useState(0);
     const [nextStepsText, setNextStepsText] = useState('');
+    const [nextLesson, setNextLesson] = useState<NextLesson | null>(null);
 
     async function handleLogout() {
         setMenuVisible(false);
@@ -48,7 +75,9 @@ export default function StudentDashboardScreen() {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) return;
 
-            const [profileResult, recordResult, progressResult, configResult] = await Promise.all([
+            const today = new Date().toISOString().slice(0, 10);
+
+            const [profileResult, recordResult, progressResult, configResult, appointmentResult] = await Promise.all([
                 supabase.from('profiles').select('first_name').eq('id', user.id).single(),
                 supabase.from('student_records').select('training_status').eq('profile_id', user.id).single(),
                 supabase.from('training_progress').select('*').eq('student_id', user.id).single(),
@@ -58,6 +87,16 @@ export default function StudentDashboardScreen() {
                     'autobahn_lessons_minimum_b',
                     'night_lessons_minimum_b',
                 ]),
+                supabase
+                    .from('appointments')
+                    .select('requested_date, requested_time, duration_minutes, pickup_location, instructor_id')
+                    .eq('student_id', user.id)
+                    .eq('status', 'confirmed')
+                    .gte('requested_date', today)
+                    .order('requested_date', { ascending: true })
+                    .order('requested_time', { ascending: true })
+                    .limit(1)
+                    .maybeSingle(),
             ]);
 
             if (!active) return;
@@ -90,6 +129,34 @@ export default function StudentDashboardScreen() {
                         ? 'Alle Pflichtfahrten sind abgeschlossen. Als Nächstes steht die praktische Prüfung an.'
                         : `Als Nächstes fehlen noch: ${remaining.map((c) => `${c.label} (${c.done}/${c.required})`).join(', ')}.`
                 );
+            }
+
+            const appointment = appointmentResult.data;
+            if (appointment) {
+                let instructorName = 'Noch nicht zugewiesen';
+
+                if (appointment.instructor_id) {
+                    const { data: instructorProfile } = await supabase
+                        .from('profiles')
+                        .select('first_name, last_name')
+                        .eq('id', appointment.instructor_id)
+                        .single();
+
+                    if (instructorProfile) {
+                        instructorName = `${instructorProfile.first_name} ${instructorProfile.last_name}`.trim();
+                    }
+                }
+
+                if (active) {
+                    const { day, month } = formatLessonDate(appointment.requested_date);
+                    setNextLesson({
+                        day,
+                        month,
+                        timeRange: formatTimeRange(appointment.requested_time, appointment.duration_minutes),
+                        instructorName,
+                        pickupLocation: appointment.pickup_location,
+                    });
+                }
             }
 
             setLoading(false);
@@ -182,39 +249,54 @@ export default function StudentDashboardScreen() {
                     </TouchableOpacity>
                 </View>
 
-                <View style={styles.lessonCard}>
-                    <View style={styles.lessonDate}>
-                        <Text style={styles.lessonDay}>18</Text>
-                        <Text style={styles.lessonMonth}>SEP</Text>
+                {nextLesson ? (
+                    <View style={styles.lessonCard}>
+                        <View style={styles.lessonDate}>
+                            <Text style={styles.lessonDay}>{nextLesson.day}</Text>
+                            <Text style={styles.lessonMonth}>{nextLesson.month}</Text>
+                        </View>
+
+                        <View style={styles.lessonInfo}>
+                            <Text style={styles.lessonTitle}>
+                                Praktische Fahrstunde
+                            </Text>
+
+                            <InfoRow
+                                icon="time-outline"
+                                text={nextLesson.timeRange}
+                            />
+
+                            <InfoRow
+                                icon="person-outline"
+                                text={`Fahrlehrer: ${nextLesson.instructorName}`}
+                            />
+
+                            <InfoRow
+                                icon="location-outline"
+                                text={`Abholung: ${nextLesson.pickupLocation}`}
+                            />
+                        </View>
+
+                        <View style={styles.statusBadge}>
+                            <Text style={styles.statusText}>
+                                Bestätigt
+                            </Text>
+                        </View>
                     </View>
+                ) : (
+                    <View style={styles.lessonCard}>
+                        <View style={styles.lessonInfo}>
+                            <Text style={styles.lessonTitle}>
+                                Keine bestätigte Fahrstunde
+                            </Text>
 
-                    <View style={styles.lessonInfo}>
-                        <Text style={styles.lessonTitle}>
-                            Praktische Fahrstunde
-                        </Text>
-
-                        <InfoRow
-                            icon="time-outline"
-                            text="14:00 – 15:30 Uhr"
-                        />
-
-                        <InfoRow
-                            icon="person-outline"
-                            text="Fahrlehrer: Herr Müller"
-                        />
-
-                        <InfoRow
-                            icon="location-outline"
-                            text="Abholung: RS Fahrschule"
-                        />
+                            <Text style={styles.infoText}>
+                                Du hast aktuell keinen bestätigten Termin. Fordere
+                                jetzt einen neuen Termin an.
+                            </Text>
+                        </View>
                     </View>
-
-                    <View style={styles.statusBadge}>
-                        <Text style={styles.statusText}>
-                            Bestätigt
-                        </Text>
-                    </View>
-                </View>
+                )}
 
                 {/* Main action */}
                 <TouchableOpacity style={styles.primaryButton}>
