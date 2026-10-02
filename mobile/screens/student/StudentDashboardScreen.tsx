@@ -28,6 +28,23 @@ const TRAINING_STATUS_LABELS: Record<string, string> = {
     withdrawn: 'Abgemeldet',
 };
 
+const EXAM_TYPE_LABELS: Record<string, string> = {
+    theory: 'Theorieprüfung',
+    practical: 'Praktische Prüfung',
+};
+
+const NOTIFICATION_TITLES: Record<string, string> = {
+    request_received: 'Terminanfrage eingegangen',
+    appointment_confirmed: 'Termin bestätigt',
+    appointment_rejected: 'Termin abgelehnt',
+    alternative_proposed: 'Alternativtermin vorgeschlagen',
+    lesson_reminder_48h: 'Erinnerung: Fahrstunde in 48 Stunden',
+    lesson_reminder_24h: 'Erinnerung: Fahrstunde in 24 Stunden',
+    theory_exam_reminder: 'Erinnerung: Theorieprüfung',
+    practical_exam_reminder: 'Erinnerung: Praktische Prüfung',
+    appointment_changed: 'Termin geändert',
+};
+
 const GERMAN_MONTHS = ['JAN', 'FEB', 'MÄR', 'APR', 'MAI', 'JUN', 'JUL', 'AUG', 'SEP', 'OKT', 'NOV', 'DEZ'];
 
 function formatLessonDate(isoDate: string): { day: string; month: string } {
@@ -46,12 +63,46 @@ function formatTimeRange(startTime: string, durationMinutes: number): string {
     return `${pad(start.getHours())}:${pad(start.getMinutes())} – ${pad(end.getHours())}:${pad(end.getMinutes())} Uhr`;
 }
 
+function formatGermanDate(isoDate: string): string {
+    const date = new Date(`${isoDate}T00:00:00`);
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()}`;
+}
+
+function formatRelativeGerman(isoTimestamp: string): string {
+    const diffMs = Date.now() - new Date(isoTimestamp).getTime();
+    const minutes = Math.floor(diffMs / 60000);
+
+    if (minutes < 1) return 'Gerade eben';
+    if (minutes < 60) return `Vor ${minutes} ${minutes === 1 ? 'Minute' : 'Minuten'}`;
+
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `Vor ${hours} ${hours === 1 ? 'Stunde' : 'Stunden'}`;
+
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `Vor ${days} ${days === 1 ? 'Tag' : 'Tagen'}`;
+
+    return formatGermanDate(isoTimestamp.slice(0, 10));
+}
+
 type NextLesson = {
     day: string;
     month: string;
     timeRange: string;
     instructorName: string;
     pickupLocation: string;
+};
+
+type UpcomingExam = {
+    typeLabel: string;
+    dateText: string;
+    locationText: string;
+};
+
+type LatestNotification = {
+    title: string;
+    body: string;
+    timeText: string;
 };
 
 export default function StudentDashboardScreen() {
@@ -62,6 +113,8 @@ export default function StudentDashboardScreen() {
     const [progressPercent, setProgressPercent] = useState(0);
     const [nextStepsText, setNextStepsText] = useState('');
     const [nextLesson, setNextLesson] = useState<NextLesson | null>(null);
+    const [upcomingExam, setUpcomingExam] = useState<UpcomingExam | null>(null);
+    const [latestNotification, setLatestNotification] = useState<LatestNotification | null>(null);
 
     async function handleLogout() {
         setMenuVisible(false);
@@ -77,7 +130,15 @@ export default function StudentDashboardScreen() {
 
             const today = new Date().toISOString().slice(0, 10);
 
-            const [profileResult, recordResult, progressResult, configResult, appointmentResult] = await Promise.all([
+            const [
+                profileResult,
+                recordResult,
+                progressResult,
+                configResult,
+                appointmentResult,
+                examParticipationResult,
+                notificationResult,
+            ] = await Promise.all([
                 supabase.from('profiles').select('first_name').eq('id', user.id).single(),
                 supabase.from('student_records').select('training_status').eq('profile_id', user.id).single(),
                 supabase.from('training_progress').select('*').eq('student_id', user.id).single(),
@@ -95,6 +156,17 @@ export default function StudentDashboardScreen() {
                     .gte('requested_date', today)
                     .order('requested_date', { ascending: true })
                     .order('requested_time', { ascending: true })
+                    .limit(1)
+                    .maybeSingle(),
+                supabase
+                    .from('exam_participants')
+                    .select('exam_event_id, result')
+                    .eq('student_id', user.id),
+                supabase
+                    .from('notifications')
+                    .select('type, title, body, created_at')
+                    .eq('recipient_id', user.id)
+                    .order('created_at', { ascending: false })
                     .limit(1)
                     .maybeSingle(),
             ]);
@@ -157,6 +229,42 @@ export default function StudentDashboardScreen() {
                         pickupLocation: appointment.pickup_location,
                     });
                 }
+            }
+
+            // Exam card: fetch the student's exam events separately, then
+            // join and pick the nearest upcoming one in plain JS — avoids
+            // relying on Supabase's embedded-join/filter syntax for a
+            // relationship this simple.
+            const participations = examParticipationResult.data ?? [];
+            if (participations.length > 0) {
+                const eventIds = participations.map((p) => p.exam_event_id);
+                const { data: events } = await supabase
+                    .from('exam_events')
+                    .select('id, exam_type, exam_date, exam_location')
+                    .in('id', eventIds);
+
+                if (active && events) {
+                    const upcoming = events
+                        .filter((e) => e.exam_date >= today)
+                        .sort((a, b) => a.exam_date.localeCompare(b.exam_date))[0];
+
+                    if (upcoming) {
+                        setUpcomingExam({
+                            typeLabel: EXAM_TYPE_LABELS[upcoming.exam_type] ?? upcoming.exam_type,
+                            dateText: formatGermanDate(upcoming.exam_date),
+                            locationText: upcoming.exam_location,
+                        });
+                    }
+                }
+            }
+
+            const notification = notificationResult.data;
+            if (notification) {
+                setLatestNotification({
+                    title: NOTIFICATION_TITLES[notification.type] ?? notification.title,
+                    body: notification.body,
+                    timeText: formatRelativeGerman(notification.created_at),
+                });
             }
 
             setLoading(false);
@@ -397,11 +505,13 @@ export default function StudentDashboardScreen() {
 
                     <View style={styles.examContent}>
                         <Text style={styles.examType}>
-                            Theorieprüfung
+                            {upcomingExam ? upcomingExam.typeLabel : 'Theorieprüfung'}
                         </Text>
 
                         <Text style={styles.examText}>
-                            Noch kein Prüfungstermin eingetragen.
+                            {upcomingExam
+                                ? `${upcomingExam.dateText} · ${upcomingExam.locationText}`
+                                : 'Noch kein Prüfungstermin eingetragen.'}
                         </Text>
                     </View>
 
@@ -425,23 +535,33 @@ export default function StudentDashboardScreen() {
                     </TouchableOpacity>
                 </View>
 
-                <View style={styles.notificationCard}>
-                    <View style={styles.notificationDot} />
+                {latestNotification ? (
+                    <View style={styles.notificationCard}>
+                        <View style={styles.notificationDot} />
 
-                    <View style={styles.notificationContent}>
-                        <Text style={styles.notificationTitle}>
-                            Termin bestätigt
-                        </Text>
+                        <View style={styles.notificationContent}>
+                            <Text style={styles.notificationTitle}>
+                                {latestNotification.title}
+                            </Text>
 
-                        <Text style={styles.notificationText}>
-                            Deine Fahrstunde am 18. September wurde bestätigt.
-                        </Text>
+                            <Text style={styles.notificationText}>
+                                {latestNotification.body}
+                            </Text>
 
-                        <Text style={styles.notificationTime}>
-                            Vor 2 Stunden
-                        </Text>
+                            <Text style={styles.notificationTime}>
+                                {latestNotification.timeText}
+                            </Text>
+                        </View>
                     </View>
-                </View>
+                ) : (
+                    <View style={styles.notificationCard}>
+                        <View style={styles.notificationContent}>
+                            <Text style={styles.notificationText}>
+                                Keine neuen Mitteilungen.
+                            </Text>
+                        </View>
+                    </View>
+                )}
 
                 <Text style={styles.footer}>
                     RS Fahrschule
