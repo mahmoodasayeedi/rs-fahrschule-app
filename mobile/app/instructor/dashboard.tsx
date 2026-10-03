@@ -1,13 +1,5 @@
-import { View, Text, StyleSheet } from 'react-native';
+import InstructorDashboardScreen from '../../screens/instructor/InstructorDashboardScreen';
 
 export default function InstructorDashboard() {
-    return (
-        <View style={styles.container}>
-            <Text>Fahrlehrer-Dashboard (folgt)</Text>
-        </View>
-    );
+    return <InstructorDashboardScreen />;
 }
-
-const styles = StyleSheet.create({
-    container: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-});

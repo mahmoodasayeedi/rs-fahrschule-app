@@ -1,0 +1,300 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useEffect, useState } from 'react';
+import {
+    ActivityIndicator,
+    Modal,
+    Pressable,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+} from 'react-native';
+import { supabase } from '../../lib/supabase';
+
+const ORANGE = '#ff8800';
+const BACKGROUND = '#0d0d0f';
+const CARD = '#171719';
+const BORDER = '#2f2f33';
+
+function formatGermanDate(isoDate: string): string {
+    const date = new Date(`${isoDate}T00:00:00`);
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()}`;
+}
+
+function formatTimeRange(startTime: string, durationMinutes: number): string {
+    const [hours, minutes] = startTime.split(':').map(Number);
+    const start = new Date(2000, 0, 1, hours, minutes);
+    const end = new Date(start.getTime() + durationMinutes * 60000);
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${pad(start.getHours())}:${pad(start.getMinutes())} – ${pad(end.getHours())}:${pad(end.getMinutes())} Uhr`;
+}
+
+type AppointmentRow = {
+    id: string;
+    requested_date: string;
+    requested_time: string;
+    duration_minutes: number;
+    pickup_location: string;
+    end_location: string | null;
+    lesson_type: string;
+    student_note: string | null;
+    student_id: string;
+    studentName: string;
+};
+
+export default function InstructorDashboardScreen() {
+    const [menuVisible, setMenuVisible] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [firstName, setFirstName] = useState('');
+    const [pendingRequests, setPendingRequests] = useState<AppointmentRow[]>([]);
+    const [confirmedLessons, setConfirmedLessons] = useState<AppointmentRow[]>([]);
+    const [actioningId, setActioningId] = useState<string | null>(null);
+
+    async function handleLogout() {
+        setMenuVisible(false);
+        await supabase.auth.signOut();
+    }
+
+    async function loadDashboard() {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const [profileResult, requestedResult, confirmedResult] = await Promise.all([
+            supabase.from('profiles').select('first_name').eq('id', user.id).single(),
+            supabase
+                .from('appointments')
+                .select('id, requested_date, requested_time, duration_minutes, pickup_location, end_location, lesson_type, student_note, student_id')
+                .eq('instructor_id', user.id)
+                .eq('status', 'requested')
+                .order('requested_date', { ascending: true }),
+            supabase
+                .from('appointments')
+                .select('id, requested_date, requested_time, duration_minutes, pickup_location, end_location, lesson_type, student_note, student_id')
+                .eq('instructor_id', user.id)
+                .eq('status', 'confirmed')
+                .gte('requested_date', new Date().toISOString().slice(0, 10))
+                .order('requested_date', { ascending: true })
+                .limit(10),
+        ]);
+
+        setFirstName(profileResult.data?.first_name ?? '');
+
+        const allRows = [...(requestedResult.data ?? []), ...(confirmedResult.data ?? [])];
+        const studentIds = [...new Set(allRows.map((r) => r.student_id))];
+
+        let namesById: Record<string, string> = {};
+        if (studentIds.length > 0) {
+            const { data: students } = await supabase
+                .from('profiles')
+                .select('id, first_name, last_name')
+                .in('id', studentIds);
+
+            if (students) {
+                namesById = Object.fromEntries(
+                    students.map((s) => [s.id, `${s.first_name} ${s.last_name}`.trim() || 'Unbekannt'])
+                );
+            }
+        }
+
+        const withNames = (rows: typeof allRows) =>
+            rows.map((r) => ({ ...r, studentName: namesById[r.student_id] ?? 'Unbekannt' }));
+
+        setPendingRequests(withNames(requestedResult.data ?? []));
+        setConfirmedLessons(withNames(confirmedResult.data ?? []));
+        setLoading(false);
+    }
+
+    useEffect(() => {
+        loadDashboard();
+    }, []);
+
+    async function handleConfirm(appointmentId: string) {
+        setActioningId(appointmentId);
+        await supabase.from('appointments').update({ status: 'confirmed' }).eq('id', appointmentId);
+        await loadDashboard();
+        setActioningId(null);
+    }
+
+    async function handleReject(appointmentId: string) {
+        setActioningId(appointmentId);
+        await supabase.from('appointments').update({ status: 'rejected' }).eq('id', appointmentId);
+        await loadDashboard();
+        setActioningId(null);
+    }
+
+    if (loading) {
+        return (
+            <SafeAreaView style={[styles.safeArea, { alignItems: 'center', justifyContent: 'center' }]}>
+                <ActivityIndicator color={ORANGE} />
+            </SafeAreaView>
+        );
+    }
+
+    return (
+        <SafeAreaView style={styles.safeArea}>
+            <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+                {/* Header */}
+                <View style={styles.header}>
+                    <View>
+                        <Text style={styles.smallText}>Guten Tag</Text>
+                        <Text style={styles.name}>{firstName || '...'}</Text>
+                    </View>
+
+                    <TouchableOpacity style={styles.profileButton} onPress={() => setMenuVisible(true)}>
+                        <Ionicons name="person-outline" size={22} color="#ffffff" />
+                    </TouchableOpacity>
+
+                    <Modal visible={menuVisible} transparent animationType="fade" onRequestClose={() => setMenuVisible(false)}>
+                        <Pressable style={styles.menuOverlay} onPress={() => setMenuVisible(false)}>
+                            <View style={styles.menuCard}>
+                                <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
+                                    <Ionicons name="log-out-outline" size={20} color={ORANGE} />
+                                    <Text style={styles.menuItemText}>Abmelden</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </Pressable>
+                    </Modal>
+                </View>
+
+                {/* Pending requests */}
+                <View style={styles.sectionHeader}>
+                    <Text style={styles.sectionTitle}>Offene Anfragen</Text>
+                    {pendingRequests.length > 0 && (
+                        <View style={styles.countBadge}>
+                            <Text style={styles.countBadgeText}>{pendingRequests.length}</Text>
+                        </View>
+                    )}
+                </View>
+
+                {pendingRequests.length === 0 ? (
+                    <View style={styles.emptyCard}>
+                        <Text style={styles.emptyText}>Keine offenen Terminanfragen.</Text>
+                    </View>
+                ) : (
+                    pendingRequests.map((req) => (
+                        <View key={req.id} style={styles.requestCard}>
+                            <Text style={styles.studentName}>{req.studentName}</Text>
+
+                            <InfoRow icon="calendar-outline" text={formatGermanDate(req.requested_date)} />
+                            <InfoRow icon="time-outline" text={formatTimeRange(req.requested_time, req.duration_minutes)} />
+                            <InfoRow icon="location-outline" text={`Abholung: ${req.pickup_location}`} />
+                            {req.end_location && <InfoRow icon="flag-outline" text={`Ziel: ${req.end_location}`} />}
+                            {req.student_note && <InfoRow icon="chatbubble-outline" text={req.student_note} />}
+
+                            <View style={styles.actionRow}>
+                                <TouchableOpacity
+                                    style={[styles.actionButton, styles.rejectButton]}
+                                    onPress={() => handleReject(req.id)}
+                                    disabled={actioningId === req.id}
+                                >
+                                    <Text style={styles.rejectButtonText}>
+                                        {actioningId === req.id ? '…' : 'Ablehnen'}
+                                    </Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    style={[styles.actionButton, styles.confirmButton]}
+                                    onPress={() => handleConfirm(req.id)}
+                                    disabled={actioningId === req.id}
+                                >
+                                    <Text style={styles.confirmButtonText}>
+                                        {actioningId === req.id ? '…' : 'Bestätigen'}
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    ))
+                )}
+
+                {/* Confirmed upcoming lessons */}
+                <Text style={styles.sectionTitleStandalone}>Bestätigte Termine</Text>
+
+                {confirmedLessons.length === 0 ? (
+                    <View style={styles.emptyCard}>
+                        <Text style={styles.emptyText}>Keine bevorstehenden bestätigten Termine.</Text>
+                    </View>
+                ) : (
+                    confirmedLessons.map((lesson) => (
+                        <View key={lesson.id} style={styles.lessonCard}>
+                            <Text style={styles.studentName}>{lesson.studentName}</Text>
+                            <InfoRow icon="calendar-outline" text={formatGermanDate(lesson.requested_date)} />
+                            <InfoRow icon="time-outline" text={formatTimeRange(lesson.requested_time, lesson.duration_minutes)} />
+                            <InfoRow icon="location-outline" text={`Abholung: ${lesson.pickup_location}`} />
+                        </View>
+                    ))
+                )}
+
+                <Text style={styles.footer}>RS Fahrschule</Text>
+            </ScrollView>
+        </SafeAreaView>
+    );
+}
+
+function InfoRow({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; text: string }) {
+    return (
+        <View style={styles.infoRow}>
+            <Ionicons name={icon} size={15} color="#99999f" />
+            <Text style={styles.infoText}>{text}</Text>
+        </View>
+    );
+}
+
+const styles = StyleSheet.create({
+    safeArea: { flex: 1, backgroundColor: BACKGROUND },
+    container: { paddingHorizontal: 22, paddingTop: 20, paddingBottom: 40 },
+
+    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 25 },
+    smallText: { color: '#8c8c91', fontSize: 14 },
+    name: { color: '#ffffff', fontSize: 27, fontWeight: '900', marginTop: 2 },
+
+    profileButton: {
+        width: 46, height: 46, borderRadius: 23, backgroundColor: CARD,
+        borderWidth: 1, borderColor: '#3a3a3f', alignItems: 'center', justifyContent: 'center',
+    },
+
+    menuOverlay: {
+        flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-start',
+        alignItems: 'flex-end', paddingTop: 70, paddingRight: 20,
+    },
+    menuCard: { backgroundColor: CARD, borderRadius: 16, borderWidth: 1, borderColor: '#2a2a2e', paddingVertical: 6, minWidth: 180 },
+    menuItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 14, paddingHorizontal: 16 },
+    menuItemText: { color: '#ffffff', fontSize: 15, fontWeight: '600' },
+
+    sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 13 },
+    sectionTitle: { color: '#ffffff', fontSize: 19, fontWeight: '800' },
+    sectionTitleStandalone: { color: '#ffffff', fontSize: 19, fontWeight: '800', marginBottom: 13, marginTop: 29 },
+
+    countBadge: { backgroundColor: ORANGE, borderRadius: 11, paddingHorizontal: 8, paddingVertical: 2 },
+    countBadgeText: { color: '#ffffff', fontSize: 12, fontWeight: '800' },
+
+    emptyCard: { backgroundColor: CARD, borderWidth: 1, borderColor: BORDER, borderRadius: 18, padding: 18 },
+    emptyText: { color: '#8c8c91', fontSize: 14, textAlign: 'center' },
+
+    requestCard: {
+        backgroundColor: CARD, borderWidth: 1, borderColor: '#49331d', borderRadius: 18,
+        padding: 16, marginBottom: 12,
+    },
+    lessonCard: {
+        backgroundColor: CARD, borderWidth: 1, borderColor: BORDER, borderRadius: 18,
+        padding: 16, marginBottom: 12,
+    },
+
+    studentName: { color: '#ffffff', fontSize: 16, fontWeight: '800', marginBottom: 9 },
+
+    infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 5, gap: 6 },
+    infoText: { color: '#a5a5aa', fontSize: 12, flex: 1 },
+
+    actionRow: { flexDirection: 'row', gap: 10, marginTop: 14 },
+    actionButton: { flex: 1, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+
+    rejectButton: { backgroundColor: 'transparent', borderWidth: 2, borderColor: '#ff5c5c' },
+    rejectButtonText: { color: '#ff5c5c', fontSize: 14, fontWeight: '800' },
+
+    confirmButton: { backgroundColor: ORANGE },
+    confirmButtonText: { color: '#ffffff', fontSize: 14, fontWeight: '800' },
+
+    footer: { color: '#68686d', textAlign: 'center', fontSize: 12, marginTop: 35 },
+});
