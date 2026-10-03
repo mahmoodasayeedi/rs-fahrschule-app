@@ -12,6 +12,7 @@ import {
     View,
 } from 'react-native';
 import { supabase } from '../../lib/supabase';
+import { useRouter } from 'expo-router';
 
 const ORANGE = '#ff8800';
 const BACKGROUND = '#0d0d0f';
@@ -27,7 +28,7 @@ const TRAINING_STATUS_LABELS: Record<string, string> = {
     paused: 'Pausiert',
     withdrawn: 'Abgemeldet',
 };
-
+const router = useRouter();
 const EXAM_TYPE_LABELS: Record<string, string> = {
     theory: 'Theorieprüfung',
     practical: 'Praktische Prüfung',
@@ -407,7 +408,7 @@ export default function StudentDashboardScreen() {
                 )}
 
                 {/* Main action */}
-                <TouchableOpacity style={styles.primaryButton}>
+                <TouchableOpacity style={styles.primaryButton} onPress={() => router.push('/student/termin-anfragen')}>
                     <Ionicons
                         name="calendar-outline"
                         size={22}

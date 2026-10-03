@@ -1,6 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
 import {
+    FlatList,
+    Modal,
+    Pressable,
     SafeAreaView,
     ScrollView,
     StyleSheet,
@@ -9,40 +13,166 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { supabase } from '../../lib/supabase';
 
 const ORANGE = '#ff8800';
 const BACKGROUND = '#0d0d0f';
 const CARD = '#171719';
 const BORDER = '#3a3a3f';
 
+const DURATION_MINUTES: Record<string, number> = {
+    '45 Min.': 45,
+    '90 Min.': 90,
+    '135 Min.': 135,
+};
+
+function buildDateOptions(days: number): Date[] {
+    const options: Date[] = [];
+    const base = new Date();
+    base.setHours(0, 0, 0, 0);
+    for (let i = 0; i < days; i++) {
+        const d = new Date(base);
+        d.setDate(base.getDate() + i);
+        options.push(d);
+    }
+    return options;
+}
+
+function formatDateOption(d: Date): string {
+    return d.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function isoDateFromDate(d: Date): string {
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// 30-minute slots, 07:00–20:00. A reasonable default working range —
+// not confirmed by RS Fahrschule, adjustable later (see ASSUMPTIONS.md).
+function buildTimeOptions(): string[] {
+    const options: string[] = [];
+    for (let totalMinutes = 7 * 60; totalMinutes <= 20 * 60; totalMinutes += 30) {
+        const h = Math.floor(totalMinutes / 60);
+        const m = totalMinutes % 60;
+        options.push(`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`);
+    }
+    return options;
+}
+
+const DATE_OPTIONS = buildDateOptions(60);
+const TIME_OPTIONS = buildTimeOptions();
+
+type Instructor = {
+    id: string;
+    name: string;
+};
+
 export default function TerminAnfragenScreen() {
-    const [date, setDate] = useState('');
-    const [time, setTime] = useState('');
+    const router = useRouter();
+
+    const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+    const [selectedTime, setSelectedTime] = useState<string | null>(null);
+    const [dateModalVisible, setDateModalVisible] = useState(false);
+    const [timeModalVisible, setTimeModalVisible] = useState(false);
+
     const [duration, setDuration] = useState('');
-    const [instructor, setInstructor] = useState('');
     const [pickup, setPickup] = useState('');
     const [destination, setDestination] = useState('');
     const [note, setNote] = useState('');
 
-    function handleSubmit() {
-        console.log('Appointment request:', {
-            date,
-            time,
-            duration,
-            instructor,
-            pickup,
-            destination,
-            note,
-        });
-    }
+    const [instructors, setInstructors] = useState<Instructor[]>([]);
+    const [selectedInstructor, setSelectedInstructor] = useState<Instructor | null>(null);
+    const [instructorModalVisible, setInstructorModalVisible] = useState(false);
+
+    const [submitting, setSubmitting] = useState(false);
+    const [errorMessage, setErrorMessage] = useState('');
+    const [submitted, setSubmitted] = useState(false);
+
+    useEffect(() => {
+        let active = true;
+
+        async function loadInstructors() {
+            const { data } = await supabase
+                .from('profiles')
+                .select('id, first_name, last_name')
+                .eq('role', 'instructor')
+                .eq('is_active', true);
+
+            if (active && data) {
+                setInstructors(data.map((i) => ({ id: i.id, name: `${i.first_name} ${i.last_name}`.trim() })));
+            }
+        }
+
+        loadInstructors();
+        return () => { active = false; };
+    }, []);
 
     const canSubmit =
-        date.trim() &&
-        time.trim() &&
-        duration.trim() &&
-        instructor.trim() &&
-        pickup.trim() &&
-        destination.trim();
+        selectedDate && selectedTime && duration.trim() &&
+        selectedInstructor && pickup.trim() && destination.trim();
+
+    async function handleSubmit() {
+        setErrorMessage('');
+
+        if (!selectedDate || !selectedTime || !selectedInstructor) {
+            setErrorMessage('Bitte alle erforderlichen Felder ausfüllen.');
+            return;
+        }
+
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+            setErrorMessage('Sitzung abgelaufen. Bitte erneut anmelden.');
+            return;
+        }
+
+        setSubmitting(true);
+        const { error } = await supabase.from('appointments').insert({
+            student_id: user.id,
+            instructor_id: selectedInstructor.id,
+            status: 'requested',
+            requested_date: isoDateFromDate(selectedDate),
+            requested_time: `${selectedTime}:00`,
+            duration_minutes: DURATION_MINUTES[duration],
+            pickup_location: pickup.trim(),
+            end_location: destination.trim(),
+            lesson_type: 'normal',
+            student_note: note.trim() || null,
+        });
+        setSubmitting(false);
+
+        if (error) {
+            setErrorMessage('Anfrage konnte nicht gesendet werden. Bitte später erneut versuchen.');
+            return;
+        }
+
+        setSubmitted(true);
+    }
+
+    if (submitted) {
+        return (
+            <SafeAreaView style={styles.safeArea}>
+                <View style={styles.successContainer}>
+                    <View style={styles.successIcon}>
+                        <Ionicons name="checkmark" size={40} color="#ffffff" />
+                    </View>
+
+                    <Text style={styles.successTitle}>Anfrage gesendet</Text>
+
+                    <Text style={styles.successText}>
+                        Deine Terminanfrage wurde an die Fahrschule übermittelt.
+                        Du erhältst eine Benachrichtigung, sobald sie bearbeitet wurde.
+                    </Text>
+
+                    <TouchableOpacity
+                        style={styles.submitButton}
+                        onPress={() => router.replace('/student/dashboard')}
+                    >
+                        <Text style={styles.submitButtonText}>Zum Dashboard</Text>
+                    </TouchableOpacity>
+                </View>
+            </SafeAreaView>
+        );
+    }
 
     return (
         <SafeAreaView style={styles.safeArea}>
@@ -53,7 +183,7 @@ export default function TerminAnfragenScreen() {
             >
                 {/* Header */}
                 <View style={styles.header}>
-                    <TouchableOpacity style={styles.backButton}>
+                    <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
                         <Ionicons
                             name="arrow-back"
                             size={22}
@@ -100,23 +230,29 @@ export default function TerminAnfragenScreen() {
                     title="Wunschtermin"
                 />
 
-                <Input
-                    label="Datum"
-                    placeholder="TT.MM.JJJJ"
-                    value={date}
-                    onChangeText={setDate}
-                    icon="calendar-outline"
-                    keyboardType="numbers-and-punctuation"
-                />
+                <Text style={styles.label}>Datum</Text>
 
-                <Input
-                    label="Uhrzeit"
-                    placeholder="z. B. 14:30"
-                    value={time}
-                    onChangeText={setTime}
-                    icon="time-outline"
-                    keyboardType="numbers-and-punctuation"
-                />
+                <TouchableOpacity style={styles.selectBox} onPress={() => setDateModalVisible(true)}>
+                    <Ionicons name="calendar-outline" size={20} color="#999999" />
+
+                    <Text style={[styles.input, !selectedDate && styles.placeholderText]}>
+                        {selectedDate ? formatDateOption(selectedDate) : 'Datum auswählen'}
+                    </Text>
+
+                    <Ionicons name="chevron-down" size={19} color="#777777" />
+                </TouchableOpacity>
+
+                <Text style={styles.label}>Uhrzeit</Text>
+
+                <TouchableOpacity style={styles.selectBox} onPress={() => setTimeModalVisible(true)}>
+                    <Ionicons name="time-outline" size={20} color="#999999" />
+
+                    <Text style={[styles.input, !selectedTime && styles.placeholderText]}>
+                        {selectedTime ? `${selectedTime} Uhr` : 'Uhrzeit auswählen'}
+                    </Text>
+
+                    <Ionicons name="chevron-down" size={19} color="#777777" />
+                </TouchableOpacity>
 
                 <Text style={styles.label}>
                     Dauer
@@ -154,27 +290,26 @@ export default function TerminAnfragenScreen() {
                     Gewünschter Fahrlehrer
                 </Text>
 
-                <View style={styles.selectBox}>
+                <TouchableOpacity
+                    style={styles.selectBox}
+                    onPress={() => setInstructorModalVisible(true)}
+                >
                     <Ionicons
                         name="person-outline"
                         size={20}
                         color="#999999"
                     />
 
-                    <TextInput
-                        value={instructor}
-                        onChangeText={setInstructor}
-                        placeholder="Fahrlehrer auswählen"
-                        placeholderTextColor="#777777"
-                        style={styles.input}
-                    />
+                    <Text style={[styles.input, !selectedInstructor && styles.placeholderText]}>
+                        {selectedInstructor ? selectedInstructor.name : 'Fahrlehrer auswählen'}
+                    </Text>
 
                     <Ionicons
                         name="chevron-down"
                         size={19}
                         color="#777777"
                     />
-                </View>
+                </TouchableOpacity>
 
                 {/* Route */}
                 <SectionTitle
@@ -243,31 +378,146 @@ export default function TerminAnfragenScreen() {
                     </View>
                 </View>
 
+                {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+
                 {/* Submit */}
                 <TouchableOpacity
                     style={[
                         styles.submitButton,
-                        !canSubmit && styles.submitButtonDisabled,
+                        (!canSubmit || submitting) && styles.submitButtonDisabled,
                     ]}
-                    disabled={!canSubmit}
+                    disabled={!canSubmit || submitting}
                     onPress={handleSubmit}
                     activeOpacity={0.85}
                 >
                     <Text style={styles.submitButtonText}>
-                        Anfrage senden
+                        {submitting ? 'Wird gesendet…' : 'Anfrage senden'}
                     </Text>
 
-                    <Ionicons
-                        name="arrow-forward"
-                        size={22}
-                        color="#ffffff"
-                    />
+                    {!submitting && (
+                        <Ionicons
+                            name="arrow-forward"
+                            size={22}
+                            color="#ffffff"
+                        />
+                    )}
                 </TouchableOpacity>
 
                 <Text style={styles.footer}>
                     RS Fahrschule
                 </Text>
             </ScrollView>
+
+            {/* Date modal */}
+            <Modal
+                visible={dateModalVisible}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setDateModalVisible(false)}
+            >
+                <Pressable style={styles.modalOverlay} onPress={() => setDateModalVisible(false)}>
+                    <View style={styles.modalCard}>
+                        <Text style={styles.modalTitle}>Datum wählen</Text>
+
+                        <FlatList
+                            data={DATE_OPTIONS}
+                            keyExtractor={(item) => item.toISOString()}
+                            renderItem={({ item }) => (
+                                <TouchableOpacity
+                                    style={styles.instructorOption}
+                                    onPress={() => {
+                                        setSelectedDate(item);
+                                        setDateModalVisible(false);
+                                    }}
+                                >
+                                    <Text style={styles.instructorOptionText}>{formatDateOption(item)}</Text>
+
+                                    {selectedDate?.getTime() === item.getTime() && (
+                                        <Ionicons name="checkmark" size={20} color={ORANGE} />
+                                    )}
+                                </TouchableOpacity>
+                            )}
+                        />
+                    </View>
+                </Pressable>
+            </Modal>
+
+            {/* Time modal */}
+            <Modal
+                visible={timeModalVisible}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setTimeModalVisible(false)}
+            >
+                <Pressable style={styles.modalOverlay} onPress={() => setTimeModalVisible(false)}>
+                    <View style={styles.modalCard}>
+                        <Text style={styles.modalTitle}>Uhrzeit wählen</Text>
+
+                        <FlatList
+                            data={TIME_OPTIONS}
+                            keyExtractor={(item) => item}
+                            renderItem={({ item }) => (
+                                <TouchableOpacity
+                                    style={styles.instructorOption}
+                                    onPress={() => {
+                                        setSelectedTime(item);
+                                        setTimeModalVisible(false);
+                                    }}
+                                >
+                                    <Text style={styles.instructorOptionText}>{item} Uhr</Text>
+
+                                    {selectedTime === item && (
+                                        <Ionicons name="checkmark" size={20} color={ORANGE} />
+                                    )}
+                                </TouchableOpacity>
+                            )}
+                        />
+                    </View>
+                </Pressable>
+            </Modal>
+
+            {/* Instructor selection modal */}
+            <Modal
+                visible={instructorModalVisible}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setInstructorModalVisible(false)}
+            >
+                <Pressable
+                    style={styles.modalOverlay}
+                    onPress={() => setInstructorModalVisible(false)}
+                >
+                    <View style={styles.modalCard}>
+                        <Text style={styles.modalTitle}>Fahrlehrer wählen</Text>
+
+                        {instructors.length === 0 ? (
+                            <Text style={styles.modalEmptyText}>
+                                Aktuell sind keine Fahrlehrer verfügbar.
+                            </Text>
+                        ) : (
+                            <FlatList
+                                data={instructors}
+                                keyExtractor={(item) => item.id}
+                                renderItem={({ item }) => (
+                                    <TouchableOpacity
+                                        style={styles.instructorOption}
+                                        onPress={() => {
+                                            setSelectedInstructor(item);
+                                            setInstructorModalVisible(false);
+                                        }}
+                                    >
+                                        <Text style={styles.instructorOptionText}>{item.name}</Text>
+
+                                        {selectedInstructor?.id === item.id && (
+                                            <Ionicons name="checkmark" size={20} color={ORANGE} />
+                                        )}
+                                    </TouchableOpacity>
+                                )}
+                            />
+                        )}
+                    </View>
+                </Pressable>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -454,7 +704,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         flexDirection: 'row',
         alignItems: 'center',
-        marginBottom: 24,
+        marginBottom: 19,
     },
 
     input: {
@@ -463,6 +713,11 @@ const styles = StyleSheet.create({
         color: '#ffffff',
         fontSize: 15,
         marginLeft: 11,
+        textAlignVertical: 'center',
+    },
+
+    placeholderText: {
+        color: '#777777',
     },
 
     optionRow: {
@@ -549,6 +804,13 @@ const styles = StyleSheet.create({
         marginTop: 5,
     },
 
+    errorText: {
+        color: '#ff5c5c',
+        fontSize: 14,
+        textAlign: 'center',
+        marginBottom: 14,
+    },
+
     submitButton: {
         height: 58,
         backgroundColor: ORANGE,
@@ -574,5 +836,87 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         marginTop: 32,
         fontSize: 12,
+    },
+
+    successContainer: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 32,
+    },
+
+    successIcon: {
+        width: 80,
+        height: 80,
+        borderRadius: 40,
+        backgroundColor: '#153821',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 24,
+    },
+
+    successTitle: {
+        color: '#ffffff',
+        fontSize: 22,
+        fontWeight: '800',
+        marginBottom: 12,
+        textAlign: 'center',
+    },
+
+    successText: {
+        color: '#a8a8ad',
+        fontSize: 14,
+        lineHeight: 21,
+        textAlign: 'center',
+        marginBottom: 32,
+    },
+
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+
+    modalCard: {
+        width: '85%',
+        maxWidth: 360,
+        maxHeight: '70%',
+        backgroundColor: CARD,
+        borderRadius: 20,
+        paddingVertical: 16,
+        paddingHorizontal: 8,
+    },
+
+    modalTitle: {
+        color: '#ffffff',
+        fontSize: 17,
+        fontWeight: '700',
+        textAlign: 'center',
+        marginBottom: 12,
+        paddingHorizontal: 12,
+    },
+
+    modalEmptyText: {
+        color: '#9c9ca1',
+        fontSize: 14,
+        textAlign: 'center',
+        paddingVertical: 16,
+        paddingHorizontal: 16,
+    },
+
+    instructorOption: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingVertical: 14,
+        paddingHorizontal: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#26262a',
+    },
+
+    instructorOptionText: {
+        color: '#ffffff',
+        fontSize: 15,
     },
 });
