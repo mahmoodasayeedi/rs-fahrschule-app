@@ -87,6 +87,7 @@ function formatRelativeGerman(isoTimestamp: string): string {
 }
 
 type NextLesson = {
+    id: string;
     day: string;
     month: string;
     timeRange: string;
@@ -121,7 +122,8 @@ export default function StudentDashboardScreen() {
     const [upcomingExam, setUpcomingExam] = useState<UpcomingExam | null>(null);
     const [latestNotification, setLatestNotification] = useState<LatestNotification | null>(null);
 
-
+    const [cancelling, setCancelling] = useState(false);
+    const [cancelError, setCancelError] = useState('');
     const router = useRouter();
     const [alternativeAppointmentId, setAlternativeAppointmentId] = useState<string | null>(null);
     const [proposedAlternatives, setProposedAlternatives] = useState<ProposedAlternative[]>([]);
@@ -130,6 +132,23 @@ export default function StudentDashboardScreen() {
     async function handleLogout() {
         setMenuVisible(false);
         await supabase.auth.signOut();
+    }
+    async function handleCancel() {
+        if (!nextLesson) return;
+        const confirmed = window.confirm('Fahrstunde wirklich stornieren?');
+        if (!confirmed) return;
+
+        setCancelling(true);
+        setCancelError('');
+        const { error } = await supabase.rpc('cancel_appointment', { appointment_id: nextLesson.id });
+        setCancelling(false);
+
+        if (error) {
+            setCancelError(error.message);
+            return;
+        }
+
+        location.reload();
     }
     async function handleSelectAlternative(proposalId: string) {
         setSelectingProposalId(proposalId);
@@ -173,7 +192,7 @@ export default function StudentDashboardScreen() {
                 ]),
                 supabase
                     .from('appointments')
-                    .select('requested_date, requested_time, duration_minutes, pickup_location, instructor_id')
+                    .select('id,requested_date, requested_time, duration_minutes, pickup_location, instructor_id')
                     .eq('student_id', user.id)
                     .eq('status', 'confirmed')
                     .gte('requested_date', today)
@@ -252,6 +271,7 @@ export default function StudentDashboardScreen() {
                 if (active) {
                     const { day, month } = formatLessonDate(appointment.requested_date);
                     setNextLesson({
+                        id: appointment.id,
                         day,
                         month,
                         timeRange: formatTimeRange(appointment.requested_time, appointment.duration_minutes),
@@ -433,6 +453,13 @@ export default function StudentDashboardScreen() {
                                 icon="location-outline"
                                 text={`Abholung: ${nextLesson.pickupLocation}`}
                             />
+                            {cancelError ? <Text style={styles.cancelErrorText}>{cancelError}</Text> : null}
+
+                            <TouchableOpacity style={styles.cancelButton} onPress={handleCancel} disabled={cancelling}>
+                                <Text style={styles.cancelButtonText}>
+                                    {cancelling ? 'Wird storniert…' : 'Stornieren'}
+                                </Text>
+                            </TouchableOpacity>
                         </View>
 
                         <View style={styles.statusBadge}>
@@ -968,7 +995,9 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         rowGap: 12,
     },
-
+    cancelButton: { marginTop: 14, alignSelf: 'flex-start' },
+    cancelButtonText: { color: '#ff5c5c', fontSize: 13, fontWeight: '700' },
+    cancelErrorText: { color: '#ff5c5c', fontSize: 12, marginTop: 10 },
     tile: {
         width: '48%',
         minHeight: 135,
