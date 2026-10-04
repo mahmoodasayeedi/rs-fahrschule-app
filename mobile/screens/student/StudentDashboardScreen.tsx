@@ -99,7 +99,11 @@ type UpcomingExam = {
     dateText: string;
     locationText: string;
 };
-
+type ProposedAlternative = {
+    id: string;
+    dateText: string;
+    timeText: string;
+};
 type LatestNotification = {
     title: string;
     body: string;
@@ -117,11 +121,28 @@ export default function StudentDashboardScreen() {
     const [upcomingExam, setUpcomingExam] = useState<UpcomingExam | null>(null);
     const [latestNotification, setLatestNotification] = useState<LatestNotification | null>(null);
 
+
+    const router = useRouter();
+    const [alternativeAppointmentId, setAlternativeAppointmentId] = useState<string | null>(null);
+    const [proposedAlternatives, setProposedAlternatives] = useState<ProposedAlternative[]>([]);
+    const [selectingProposalId, setSelectingProposalId] = useState<string | null>(null);
+
     async function handleLogout() {
         setMenuVisible(false);
         await supabase.auth.signOut();
     }
+    async function handleSelectAlternative(proposalId: string) {
+        setSelectingProposalId(proposalId);
+        const { error } = await supabase.rpc('select_alternative_proposal', { proposal_id: proposalId });
+        setSelectingProposalId(null);
 
+        if (!error) {
+            setAlternativeAppointmentId(null);
+            setProposedAlternatives([]);
+            // Simplest reliable way to refresh every card after confirming.
+            location.reload();
+        }
+    }
     useEffect(() => {
         let active = true;
 
@@ -137,6 +158,7 @@ export default function StudentDashboardScreen() {
                 progressResult,
                 configResult,
                 appointmentResult,
+                alternativeAppointmentResult,
                 examParticipationResult,
                 notificationResult,
             ] = await Promise.all([
@@ -157,6 +179,13 @@ export default function StudentDashboardScreen() {
                     .gte('requested_date', today)
                     .order('requested_date', { ascending: true })
                     .order('requested_time', { ascending: true })
+                    .limit(1)
+                    .maybeSingle(),
+                supabase
+                    .from('appointments')
+                    .select('id')
+                    .eq('student_id', user.id)
+                    .eq('status', 'alternative_proposed')
                     .limit(1)
                     .maybeSingle(),
                 supabase
@@ -229,6 +258,26 @@ export default function StudentDashboardScreen() {
                         instructorName,
                         pickupLocation: appointment.pickup_location,
                     });
+                }
+            }
+
+            const altAppointment = alternativeAppointmentResult.data;
+            if (altAppointment) {
+                const { data: proposals } = await supabase
+                    .from('alternative_proposals')
+                    .select('id, proposed_date, proposed_time')
+                    .eq('original_appointment_id', altAppointment.id)
+                    .eq('selected', false);
+
+                if (active && proposals) {
+                    setAlternativeAppointmentId(altAppointment.id);
+                    setProposedAlternatives(
+                        proposals.map((p) => ({
+                            id: p.id,
+                            dateText: formatGermanDate(p.proposed_date),
+                            timeText: p.proposed_time.slice(0, 5),
+                        }))
+                    );
                 }
             }
 
@@ -404,6 +453,32 @@ export default function StudentDashboardScreen() {
                                 jetzt einen neuen Termin an.
                             </Text>
                         </View>
+                    </View>
+                )}
+                {alternativeAppointmentId && proposedAlternatives.length > 0 && (
+                    <View style={styles.alternativeCard}>
+                        <Text style={styles.alternativeTitle}>Alternativtermine vorgeschlagen</Text>
+                        <Text style={styles.alternativeSubtitle}>
+                            Die Fahrschule hat folgende Alternativen vorgeschlagen. Bitte wähle einen Termin:
+                        </Text>
+
+                        {proposedAlternatives.map((alt) => (
+                            <TouchableOpacity
+                                key={alt.id}
+                                style={styles.alternativeOption}
+                                onPress={() => handleSelectAlternative(alt.id)}
+                                disabled={selectingProposalId === alt.id}
+                            >
+                                <View>
+                                    <Text style={styles.alternativeOptionDate}>{alt.dateText}</Text>
+                                    <Text style={styles.alternativeOptionTime}>{alt.timeText} Uhr</Text>
+                                </View>
+
+                                <Text style={styles.alternativeSelectText}>
+                                    {selectingProposalId === alt.id ? '…' : 'Wählen'}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
                     </View>
                 )}
 
@@ -1040,4 +1115,18 @@ const styles = StyleSheet.create({
         fontSize: 15,
         fontWeight: '600',
     },
+    alternativeCard: {
+        backgroundColor: CARD, borderWidth: 1, borderColor: '#49331d', borderRadius: 18,
+        padding: 16, marginTop: 12,
+    },
+    alternativeTitle: { color: '#ffffff', fontSize: 16, fontWeight: '800', marginBottom: 6 },
+    alternativeSubtitle: { color: '#a3a3a8', fontSize: 12, lineHeight: 17, marginBottom: 14 },
+    alternativeOption: {
+        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+        backgroundColor: '#0d0d0f', borderWidth: 1, borderColor: BORDER, borderRadius: 14,
+        padding: 12, marginBottom: 8,
+    },
+    alternativeOptionDate: { color: '#ffffff', fontSize: 14, fontWeight: '700' },
+    alternativeOptionTime: { color: '#9c9ca1', fontSize: 12, marginTop: 2 },
+    alternativeSelectText: { color: ORANGE, fontSize: 13, fontWeight: '800' },
 });

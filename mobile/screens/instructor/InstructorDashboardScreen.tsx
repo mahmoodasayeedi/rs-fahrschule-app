@@ -8,6 +8,7 @@ import {
     ScrollView,
     StyleSheet,
     Text,
+    TextInput,
     TouchableOpacity,
     View,
 } from 'react-native';
@@ -32,6 +33,33 @@ function formatTimeRange(startTime: string, durationMinutes: number): string {
     return `${pad(start.getHours())}:${pad(start.getMinutes())} – ${pad(end.getHours())}:${pad(end.getMinutes())} Uhr`;
 }
 
+// "TT.MM.JJJJ" -> "JJJJ-MM-TT", or null if not a real, future date.
+function parseGermanDate(input: string): string | null {
+    const match = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(input.trim());
+    if (!match) return null;
+
+    const [, dd, mm, yyyy] = match;
+    const date = new Date(Date.UTC(Number(yyyy), Number(mm) - 1, Number(dd)));
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+
+    const isRealDate =
+        date.getUTCFullYear() === Number(yyyy) &&
+        date.getUTCMonth() === Number(mm) - 1 &&
+        date.getUTCDate() === Number(dd);
+
+    if (!isRealDate || date < today) return null;
+    return `${yyyy}-${mm}-${dd}`;
+}
+
+function parseGermanTime(input: string): string | null {
+    // Accept either a colon or a period as the separator — some keyboards/
+    // browsers auto-convert ':' to '.' in number-like fields.
+    const normalized = input.trim().replace('.', ':');
+    const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(normalized);
+    return match ? `${match[1]}:${match[2]}:00` : null;
+}
+
 type AppointmentRow = {
     id: string;
     requested_date: string;
@@ -45,6 +73,8 @@ type AppointmentRow = {
     studentName: string;
 };
 
+type AlternativeSlot = { date: string; time: string };
+
 export default function InstructorDashboardScreen() {
     const [menuVisible, setMenuVisible] = useState(false);
     const [loading, setLoading] = useState(true);
@@ -52,6 +82,16 @@ export default function InstructorDashboardScreen() {
     const [pendingRequests, setPendingRequests] = useState<AppointmentRow[]>([]);
     const [confirmedLessons, setConfirmedLessons] = useState<AppointmentRow[]>([]);
     const [actioningId, setActioningId] = useState<string | null>(null);
+
+    const [rejectModalVisible, setRejectModalVisible] = useState(false);
+    const [rejectingAppointment, setRejectingAppointment] = useState<AppointmentRow | null>(null);
+    const [rejectReason, setRejectReason] = useState('');
+
+    const [proposeModalVisible, setProposeModalVisible] = useState(false);
+    const [proposingAppointment, setProposingAppointment] = useState<AppointmentRow | null>(null);
+    const [proposalSlots, setProposalSlots] = useState<AlternativeSlot[]>([{ date: '', time: '' }]);
+    const [proposeError, setProposeError] = useState('');
+    const [proposeSubmitting, setProposeSubmitting] = useState(false);
 
     async function handleLogout() {
         setMenuVisible(false);
@@ -118,11 +158,82 @@ export default function InstructorDashboardScreen() {
         setActioningId(null);
     }
 
-    async function handleReject(appointmentId: string) {
-        setActioningId(appointmentId);
-        await supabase.from('appointments').update({ status: 'rejected' }).eq('id', appointmentId);
+    function openRejectModal(appointment: AppointmentRow) {
+        setRejectingAppointment(appointment);
+        setRejectReason('');
+        setRejectModalVisible(true);
+    }
+
+    async function submitReject() {
+        if (!rejectingAppointment) return;
+        setActioningId(rejectingAppointment.id);
+        await supabase
+            .from('appointments')
+            .update({ status: 'rejected', student_facing_reason: rejectReason.trim() || null })
+            .eq('id', rejectingAppointment.id);
+        setRejectModalVisible(false);
+        setRejectingAppointment(null);
         await loadDashboard();
         setActioningId(null);
+    }
+
+    function openProposeModal(appointment: AppointmentRow) {
+        setProposingAppointment(appointment);
+        setProposalSlots([{ date: '', time: '' }]);
+        setProposeError('');
+        setProposeModalVisible(true);
+    }
+
+    function updateSlot(index: number, field: 'date' | 'time', value: string) {
+        setProposalSlots((slots) => slots.map((s, i) => (i === index ? { ...s, [field]: value } : s)));
+    }
+
+    async function submitProposals() {
+        if (!proposingAppointment) return;
+        setProposeError('');
+
+        const filled = proposalSlots.filter((s) => s.date.trim() || s.time.trim());
+        if (filled.length === 0) {
+            setProposeError('Bitte mindestens einen Terminvorschlag ausfüllen.');
+            return;
+        }
+
+        const parsed: { date: string; time: string }[] = [];
+        for (const slot of filled) {
+            const isoDate = parseGermanDate(slot.date);
+            const isoTime = parseGermanTime(slot.time);
+            if (!isoDate || !isoTime) {
+                setProposeError('Bitte Datum (TT.MM.JJJJ) und Uhrzeit (HH:MM) für jeden ausgefüllten Vorschlag korrekt angeben.');
+                return;
+            }
+            parsed.push({ date: isoDate, time: isoTime });
+        }
+
+        setProposeSubmitting(true);
+
+        const { error: insertError } = await supabase.from('alternative_proposals').insert(
+            parsed.map((p) => ({
+                original_appointment_id: proposingAppointment.id,
+                proposed_date: p.date,
+                proposed_time: p.time,
+            }))
+        );
+
+        if (insertError) {
+            setProposeSubmitting(false);
+            setProposeError('Vorschläge konnten nicht gespeichert werden. Bitte erneut versuchen.');
+            return;
+        }
+
+        await supabase
+            .from('appointments')
+            .update({ status: 'alternative_proposed' })
+            .eq('id', proposingAppointment.id);
+
+        setProposeSubmitting(false);
+        setProposeModalVisible(false);
+        setProposingAppointment(null);
+        await loadDashboard();
     }
 
     if (loading) {
@@ -187,12 +298,18 @@ export default function InstructorDashboardScreen() {
                             <View style={styles.actionRow}>
                                 <TouchableOpacity
                                     style={[styles.actionButton, styles.rejectButton]}
-                                    onPress={() => handleReject(req.id)}
+                                    onPress={() => openRejectModal(req)}
                                     disabled={actioningId === req.id}
                                 >
-                                    <Text style={styles.rejectButtonText}>
-                                        {actioningId === req.id ? '…' : 'Ablehnen'}
-                                    </Text>
+                                    <Text style={styles.rejectButtonText}>Ablehnen</Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    style={[styles.actionButton, styles.proposeButton]}
+                                    onPress={() => openProposeModal(req)}
+                                    disabled={actioningId === req.id}
+                                >
+                                    <Text style={styles.proposeButtonText}>Alternative</Text>
                                 </TouchableOpacity>
 
                                 <TouchableOpacity
@@ -229,6 +346,98 @@ export default function InstructorDashboardScreen() {
 
                 <Text style={styles.footer}>RS Fahrschule</Text>
             </ScrollView>
+
+            {/* Reject modal */}
+            <Modal visible={rejectModalVisible} transparent animationType="fade" onRequestClose={() => setRejectModalVisible(false)}>
+                <Pressable style={styles.modalOverlay} onPress={() => setRejectModalVisible(false)}>
+                    <Pressable style={styles.formModalCard} onPress={(e) => e.stopPropagation()}>
+                        <Text style={styles.modalTitle}>Anfrage ablehnen</Text>
+
+                        <Text style={styles.modalLabel}>
+                            Begründung für {rejectingAppointment?.studentName} (optional, wird dem Fahrschüler angezeigt)
+                        </Text>
+
+                        <TextInput
+                            value={rejectReason}
+                            onChangeText={setRejectReason}
+                            placeholder="z. B. Termin bereits vergeben..."
+                            placeholderTextColor="#777777"
+                            multiline
+                            style={styles.modalTextArea}
+                        />
+
+                        <View style={styles.modalActionRow}>
+                            <TouchableOpacity style={styles.modalCancelButton} onPress={() => setRejectModalVisible(false)}>
+                                <Text style={styles.modalCancelText}>Abbrechen</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity style={styles.modalSubmitButton} onPress={submitReject}>
+                                <Text style={styles.modalSubmitText}>Ablehnen</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </Pressable>
+                </Pressable>
+            </Modal>
+
+            {/* Propose alternatives modal */}
+            <Modal visible={proposeModalVisible} transparent animationType="fade" onRequestClose={() => setProposeModalVisible(false)}>
+                <Pressable style={styles.modalOverlay} onPress={() => setProposeModalVisible(false)}>
+                    <Pressable style={styles.formModalCard} onPress={(e) => e.stopPropagation()}>
+                        <Text style={styles.modalTitle}>Alternativtermine vorschlagen</Text>
+
+                        <Text style={styles.modalLabel}>
+                            Für {proposingAppointment?.studentName} — bis zu 3 Vorschläge
+                        </Text>
+
+                        {proposalSlots.map((slot, index) => (
+                            <View key={index} style={styles.slotRow}>
+                                <TextInput
+                                    value={slot.date}
+                                    onChangeText={(v) => updateSlot(index, 'date', v)}
+                                    placeholder="TT.MM.JJJJ"
+                                    placeholderTextColor="#777777"
+                                    style={styles.slotInput}
+                                />
+                                <TextInput
+                                    value={slot.time}
+                                    onChangeText={(v) => updateSlot(index, 'time', v)}
+                                    placeholder="HH:MM"
+                                    placeholderTextColor="#777777"
+                                    style={styles.slotInput}
+                                />
+                            </View>
+                        ))}
+
+                        {proposalSlots.length < 3 && (
+                            <TouchableOpacity
+                                style={styles.addSlotButton}
+                                onPress={() => setProposalSlots((s) => [...s, { date: '', time: '' }])}
+                            >
+                                <Ionicons name="add" size={18} color={ORANGE} />
+                                <Text style={styles.addSlotText}>Weiteren Vorschlag hinzufügen</Text>
+                            </TouchableOpacity>
+                        )}
+
+                        {proposeError ? <Text style={styles.proposeErrorText}>{proposeError}</Text> : null}
+
+                        <View style={styles.modalActionRow}>
+                            <TouchableOpacity style={styles.modalCancelButton} onPress={() => setProposeModalVisible(false)}>
+                                <Text style={styles.modalCancelText}>Abbrechen</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.modalSubmitButton}
+                                onPress={submitProposals}
+                                disabled={proposeSubmitting}
+                            >
+                                <Text style={styles.modalSubmitText}>
+                                    {proposeSubmitting ? 'Wird gesendet…' : 'Vorschläge senden'}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </Pressable>
+                </Pressable>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -287,14 +496,44 @@ const styles = StyleSheet.create({
     infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 5, gap: 6 },
     infoText: { color: '#a5a5aa', fontSize: 12, flex: 1 },
 
-    actionRow: { flexDirection: 'row', gap: 10, marginTop: 14 },
-    actionButton: { flex: 1, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+    actionRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
+    actionButton: { flex: 1, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
 
     rejectButton: { backgroundColor: 'transparent', borderWidth: 2, borderColor: '#ff5c5c' },
-    rejectButtonText: { color: '#ff5c5c', fontSize: 14, fontWeight: '800' },
+    rejectButtonText: { color: '#ff5c5c', fontSize: 13, fontWeight: '800' },
+
+    proposeButton: { backgroundColor: 'transparent', borderWidth: 2, borderColor: ORANGE },
+    proposeButtonText: { color: ORANGE, fontSize: 13, fontWeight: '800' },
 
     confirmButton: { backgroundColor: ORANGE },
-    confirmButtonText: { color: '#ffffff', fontSize: 14, fontWeight: '800' },
+    confirmButtonText: { color: '#ffffff', fontSize: 13, fontWeight: '800' },
 
     footer: { color: '#68686d', textAlign: 'center', fontSize: 12, marginTop: 35 },
+
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+    formModalCard: { width: '100%', maxWidth: 400, backgroundColor: CARD, borderRadius: 20, padding: 20 },
+    modalTitle: { color: '#ffffff', fontSize: 18, fontWeight: '800', marginBottom: 6 },
+    modalLabel: { color: '#a5a5aa', fontSize: 13, marginBottom: 14, lineHeight: 18 },
+
+    modalTextArea: {
+        minHeight: 90, backgroundColor: '#0d0d0f', borderWidth: 1, borderColor: BORDER,
+        borderRadius: 14, color: '#ffffff', fontSize: 14, padding: 12, textAlignVertical: 'top', marginBottom: 16,
+    },
+
+    slotRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
+    slotInput: {
+        flex: 1, height: 48, backgroundColor: '#0d0d0f', borderWidth: 1, borderColor: BORDER,
+        borderRadius: 12, color: '#ffffff', fontSize: 14, paddingHorizontal: 14,
+    },
+
+    addSlotButton: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4, marginBottom: 10 },
+    addSlotText: { color: ORANGE, fontSize: 13, fontWeight: '700' },
+
+    proposeErrorText: { color: '#ff5c5c', fontSize: 13, marginBottom: 10 },
+
+    modalActionRow: { flexDirection: 'row', gap: 10, marginTop: 8 },
+    modalCancelButton: { flex: 1, height: 48, borderRadius: 24, borderWidth: 2, borderColor: BORDER, alignItems: 'center', justifyContent: 'center' },
+    modalCancelText: { color: '#a5a5aa', fontSize: 14, fontWeight: '700' },
+    modalSubmitButton: { flex: 1, height: 48, borderRadius: 24, backgroundColor: ORANGE, alignItems: 'center', justifyContent: 'center' },
+    modalSubmitText: { color: '#ffffff', fontSize: 14, fontWeight: '800' },
 });
