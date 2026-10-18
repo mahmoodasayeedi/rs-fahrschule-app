@@ -16,6 +16,7 @@ import {
 
 const ORANGE = '#ff8800';
 const BACKGROUND = '#0d0d0f';
+
 // "TT.MM.JJJJ" -> "JJJJ-MM-TT", or null if it isn't a real date in the past.
 function parseGermanDate(input: string): string | null {
     const match = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(input.trim());
@@ -31,6 +32,18 @@ function parseGermanDate(input: string): string | null {
 
     if (!isRealDate || date > new Date() || Number(yyyy) < 1900) return null;
     return `${yyyy}-${mm}-${dd}`;
+}
+
+// Accepts "+49 7274 12345", "07274/12345", "0151-1234567" etc.
+// Returns the cleaned number (digits and an optional leading +), or null if invalid.
+function normalizePhone(input: string): string | null {
+    const cleaned = input.replace(/[\s\-\/().]/g, '');
+    if (!/^\+?\d{6,15}$/.test(cleaned)) return null;
+    return cleaned;
+}
+
+function isValidEmail(input: string): boolean {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(input.trim());
 }
 
 function translateSignUpError(code?: string): string {
@@ -77,8 +90,13 @@ export default function RegisterScreen() {
         setErrorMessage('');
         setInfoMessage('');
 
-        if (!firstName.trim() || !lastName.trim()) {
-            setErrorMessage('Bitte Vor- und Nachnamen eingeben.');
+        if (firstName.trim().length < 2) {
+            setErrorMessage('Bitte einen gültigen Vornamen eingeben.');
+            return;
+        }
+
+        if (lastName.trim().length < 2) {
+            setErrorMessage('Bitte einen gültigen Nachnamen eingeben.');
             return;
         }
 
@@ -88,8 +106,24 @@ export default function RegisterScreen() {
             return;
         }
 
+        if (!phone.trim()) {
+            setErrorMessage('Bitte eine Telefonnummer eingeben.');
+            return;
+        }
+
+        const cleanPhone = normalizePhone(phone);
+        if (!cleanPhone) {
+            setErrorMessage('Bitte eine gültige Telefonnummer eingeben, z. B. +49 151 1234567.');
+            return;
+        }
+
         if (!street.trim() || !postalCode.trim() || !city.trim()) {
             setErrorMessage('Bitte die vollständige Adresse eingeben.');
+            return;
+        }
+
+        if (!/^\d{5}$/.test(postalCode.trim())) {
+            setErrorMessage('Die Postleitzahl muss aus 5 Ziffern bestehen.');
             return;
         }
 
@@ -98,8 +132,8 @@ export default function RegisterScreen() {
             return;
         }
 
-        if (!email.trim()) {
-            setErrorMessage('Bitte eine E-Mail-Adresse eingeben.');
+        if (!isValidEmail(email)) {
+            setErrorMessage('Bitte eine gültige E-Mail-Adresse eingeben.');
             return;
         }
 
@@ -122,7 +156,7 @@ export default function RegisterScreen() {
                 data: {
                     first_name: firstName.trim(),
                     last_name: lastName.trim(),
-                    phone: phone.trim(),
+                    phone: cleanPhone,
                     birth_date: isoBirthDate,
                     address: `${street.trim()}, ${postalCode.trim()} ${city.trim()}`,
                     license_class: licenceClass,
@@ -184,6 +218,10 @@ export default function RegisterScreen() {
                         <Text style={styles.subtitle}>
                             Registrieren Sie sich als Fahrschüler bei RS Fahrschule.
                         </Text>
+
+                        <Text style={styles.requiredNote}>
+                            Alle Felder sind Pflichtfelder.
+                        </Text>
                     </View>
 
                     {/* PERSONAL DATA */}
@@ -198,6 +236,8 @@ export default function RegisterScreen() {
                         value={firstName}
                         onChangeText={setFirstName}
                         icon="person-outline"
+                        autoCapitalize="words"
+                        maxLength={100}
                     />
 
                     <Input
@@ -206,6 +246,8 @@ export default function RegisterScreen() {
                         value={lastName}
                         onChangeText={setLastName}
                         icon="person-outline"
+                        autoCapitalize="words"
+                        maxLength={100}
                     />
 
                     <Input
@@ -215,15 +257,17 @@ export default function RegisterScreen() {
                         onChangeText={setBirthDate}
                         icon="calendar-outline"
                         keyboardType="numbers-and-punctuation"
+                        maxLength={10}
                     />
 
                     <Input
                         label="Telefonnummer"
-                        placeholder="+49 ..."
+                        placeholder="+49 151 1234567"
                         value={phone}
                         onChangeText={setPhone}
                         icon="call-outline"
                         keyboardType="phone-pad"
+                        maxLength={30}
                     />
 
                     {/* ADDRESS */}
@@ -247,6 +291,7 @@ export default function RegisterScreen() {
                         onChangeText={setPostalCode}
                         icon="location-outline"
                         keyboardType="number-pad"
+                        maxLength={5}
                     />
 
                     <Input
@@ -305,6 +350,7 @@ export default function RegisterScreen() {
                         icon="mail-outline"
                         keyboardType="email-address"
                         autoCapitalize="none"
+                        autoCorrect={false}
                     />
 
                     <Text style={styles.label}>Passwort</Text>
@@ -322,6 +368,7 @@ export default function RegisterScreen() {
                             placeholder="Passwort erstellen"
                             placeholderTextColor="#777"
                             secureTextEntry={!showPassword}
+                            autoCapitalize="none"
                             style={styles.input}
                         />
 
@@ -347,6 +394,7 @@ export default function RegisterScreen() {
                         onChangeText={setConfirmPassword}
                         icon="shield-checkmark-outline"
                         secureTextEntry={!showPassword}
+                        autoCapitalize="none"
                     />
 
                     {/* PRIVACY */}
@@ -543,6 +591,13 @@ const styles = StyleSheet.create({
         marginTop: 9,
     },
 
+    requiredNote: {
+        color: '#777',
+        fontSize: 13,
+        textAlign: 'center',
+        marginTop: 8,
+    },
+
     sectionTitle: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -693,6 +748,7 @@ const styles = StyleSheet.create({
         fontSize: 13,
         marginTop: 35,
     },
+
     errorText: {
         color: '#ff5c5c',
         fontSize: 14,
