@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import AssignInstructorButton from "./AssignInstructorButton";
 
 const MIN_KEYS = [
     "theory_lessons_minimum_b",
@@ -253,9 +254,17 @@ export default async function FahrschuelerDetailPage({
                             }
                         />
                         <Field
-                            label="Fahrlehrer"
-                            value={instructor ? personName(instructor) : "—"}
-                        />
+    label="Fahrlehrer"
+    value={
+        <span className="flex items-center gap-3">
+            <span>{instructor ? personName(instructor) : "—"}</span>
+            <AssignInstructorButton
+                studentId={id}
+                currentInstructorId={record?.assigned_instructor_id ?? null}
+            />
+        </span>
+    }
+/>
                         <Field
                             label="Status"
                             value={record?.is_active ? "Aktiv" : "Inaktiv"}
