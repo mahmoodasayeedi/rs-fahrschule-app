@@ -93,6 +93,9 @@ export default function InstructorDashboardScreen() {
     const [proposeError, setProposeError] = useState('');
     const [proposeSubmitting, setProposeSubmitting] = useState(false);
 
+    const [finishableLessons, setFinishableLessons] = useState<AppointmentRow[]>([]);
+    const [finishError, setFinishError] = useState('');
+
     async function handleLogout() {
         setMenuVisible(false);
         await supabase.auth.signOut();
@@ -115,9 +118,9 @@ export default function InstructorDashboardScreen() {
                 .select('id, requested_date, requested_time, duration_minutes, pickup_location, end_location, lesson_type, student_note, student_id')
                 .eq('instructor_id', user.id)
                 .eq('status', 'confirmed')
-                .gte('requested_date', new Date().toISOString().slice(0, 10))
+                .gte('requested_date', new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10))
                 .order('requested_date', { ascending: true })
-                .limit(10),
+                .limit(50),
         ]);
 
         setFirstName(profileResult.data?.first_name ?? '');
@@ -143,7 +146,13 @@ export default function InstructorDashboardScreen() {
             rows.map((r) => ({ ...r, studentName: namesById[r.student_id] ?? 'Unbekannt' }));
 
         setPendingRequests(withNames(requestedResult.data ?? []));
-        setConfirmedLessons(withNames(confirmedResult.data ?? []));
+        const confirmedWithNames = withNames(confirmedResult.data ?? []);
+const now = new Date();
+const hasStarted = (r: AppointmentRow) =>
+    new Date(`${r.requested_date}T${r.requested_time}`) <= now;
+
+setFinishableLessons(confirmedWithNames.filter(hasStarted));
+setConfirmedLessons(confirmedWithNames.filter((r) => !hasStarted(r)).slice(0, 10));
         setLoading(false);
     }
 
@@ -157,6 +166,18 @@ export default function InstructorDashboardScreen() {
         await loadDashboard();
         setActioningId(null);
     }
+
+    async function handleFinish(appointmentId: string, outcome: 'completed' | 'no_show' | 'excused') {
+    setFinishError('');
+    setActioningId(appointmentId);
+    const { error } = await supabase.rpc('finish_appointment', {
+        p_appointment_id: appointmentId,
+        p_outcome: outcome,
+    });
+    if (error) setFinishError(error.message);
+    await loadDashboard();
+    setActioningId(null);
+}
 
     function openRejectModal(appointment: AppointmentRow) {
         setRejectingAppointment(appointment);
@@ -325,7 +346,55 @@ export default function InstructorDashboardScreen() {
                         </View>
                     ))
                 )}
+                {/* Lessons waiting to be closed out */}
+{finishableLessons.length > 0 && (
+    <>
+        <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitleStandalone}>Abschluss ausstehend</Text>
+            <View style={styles.countBadge}>
+                <Text style={styles.countBadgeText}>{finishableLessons.length}</Text>
+            </View>
+        </View>
 
+        {finishError ? <Text style={styles.proposeErrorText}>{finishError}</Text> : null}
+
+        {finishableLessons.map((lesson) => (
+            <View key={lesson.id} style={styles.requestCard}>
+                <Text style={styles.studentName}>{lesson.studentName}</Text>
+                <InfoRow icon="calendar-outline" text={formatGermanDate(lesson.requested_date)} />
+                <InfoRow icon="time-outline" text={formatTimeRange(lesson.requested_time, lesson.duration_minutes)} />
+
+                <View style={styles.actionRow}>
+                    <TouchableOpacity
+                        style={[styles.actionButton, styles.rejectButton]}
+                        onPress={() => handleFinish(lesson.id, 'no_show')}
+                        disabled={actioningId === lesson.id}
+                    >
+                        <Text style={styles.rejectButtonText}>Nicht erschienen</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={[styles.actionButton, styles.proposeButton]}
+                        onPress={() => handleFinish(lesson.id, 'excused')}
+                        disabled={actioningId === lesson.id}
+                    >
+                        <Text style={styles.proposeButtonText}>Entschuldigt</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={[styles.actionButton, styles.confirmButton]}
+                        onPress={() => handleFinish(lesson.id, 'completed')}
+                        disabled={actioningId === lesson.id}
+                    >
+                        <Text style={styles.confirmButtonText}>
+                            {actioningId === lesson.id ? '…' : 'Durchgeführt'}
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+        ))}
+    </>
+)}
                 {/* Confirmed upcoming lessons */}
                 <Text style={styles.sectionTitleStandalone}>Bestätigte Termine</Text>
 
