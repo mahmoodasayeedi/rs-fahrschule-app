@@ -29,7 +29,16 @@ const STATUS_LABEL: Record<string, string> = {
     no_show: "Nicht erschienen",
 };
 const REASSIGNABLE = ["requested", "confirmed"];
+const OUTCOMES = [
+    { key: "completed", label: "Durchgeführt", hint: "Zählt für den Ausbildungsfortschritt." },
+    { key: "no_show", label: "Nicht erschienen", hint: "Zählt nicht als Fahrstunde." },
+    { key: "excused", label: "Entschuldigt", hint: "Wird als entschuldigte Stornierung erfasst und zählt nicht als Fahrstunde." },
+];
 
+// Same rule the database enforces: only lessons that already started can be closed.
+function hasStarted(r: Row) {
+    return new Date(`${r.date}T${r.time.slice(0, 5)}`) <= new Date();
+}
 const FILTERS = [
     { key: "all", label: "Alle" },
     { key: "requested", label: "Angefragt" },
@@ -53,6 +62,10 @@ export default function TermineTable({
     const [reason, setReason] = useState("");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [closeTarget, setCloseTarget] = useState<Row | null>(null);
+    const [outcome, setOutcome] = useState("");
+    const [closeBusy, setCloseBusy] = useState(false);
+    const [closeError, setCloseError] = useState<string | null>(null);
 
     const visible = useMemo(() => {
         const list = filter === "all" ? rows : rows.filter((r) => r.status === filter);
@@ -87,6 +100,29 @@ export default function TermineTable({
             return;
         }
         setTarget(null);
+        router.refresh();
+    }
+        function openClose(r: Row) {
+        setCloseTarget(r);
+        setOutcome("");
+        setCloseError(null);
+    }
+
+    async function submitClose() {
+        if (!closeTarget || !outcome) return;
+        setCloseBusy(true);
+        setCloseError(null);
+        const supabase = createClient();
+        const { error } = await supabase.rpc("finish_appointment", {
+            p_appointment_id: closeTarget.id,
+            p_outcome: outcome,
+        });
+        setCloseBusy(false);
+        if (error) {
+            setCloseError(error.message);
+            return;
+        }
+        setCloseTarget(null);
         router.refresh();
     }
 
@@ -147,15 +183,25 @@ export default function TermineTable({
                                         {STATUS_LABEL[r.status] ?? r.status}
                                     </span>
                                 </td>
-                                <td className="px-4 py-3 text-right">
-                                    {REASSIGNABLE.includes(r.status) && (
-                                        <button
-                                            onClick={() => open(r)}
-                                            className="rounded border border-white/15 px-3 py-1 text-xs text-white/70 hover:border-[#ff8800] hover:text-[#ff8800]"
-                                        >
-                                            Neu zuweisen
-                                        </button>
-                                    )}
+                                                                <td className="whitespace-nowrap px-4 py-3 text-right">
+                                    <div className="flex justify-end gap-2">
+                                        {r.status === "confirmed" && hasStarted(r) && (
+                                            <button
+                                                onClick={() => openClose(r)}
+                                                className="rounded border border-[#ff8800]/60 px-3 py-1 text-xs text-[#ff8800] hover:bg-[#ff8800]/10"
+                                            >
+                                                Abschluss
+                                            </button>
+                                        )}
+                                        {REASSIGNABLE.includes(r.status) && (
+                                            <button
+                                                onClick={() => open(r)}
+                                                className="rounded border border-white/15 px-3 py-1 text-xs text-white/70 hover:border-[#ff8800] hover:text-[#ff8800]"
+                                            >
+                                                Neu zuweisen
+                                            </button>
+                                        )}
+                                    </div>
                                 </td>
                             </tr>
                         ))}
@@ -214,6 +260,63 @@ export default function TermineTable({
                                 className="rounded bg-[#ff8800] px-4 py-2 text-sm font-medium text-black disabled:opacity-40"
                             >
                                 {busy ? "Speichern…" : "Zuweisen"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+                        {closeTarget && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+                    <div className="w-full max-w-md rounded border border-white/15 bg-[#0d0d0f] p-6">
+                        <h2 className="text-lg font-semibold">Fahrstunde abschließen</h2>
+                        <p className="mt-1 text-sm text-white/50">
+                            {closeTarget.studentName} · {closeTarget.date} · {closeTarget.time}
+                        </p>
+
+                        <div className="mt-5 space-y-2">
+                            {OUTCOMES.map((o) => (
+                                <label
+                                    key={o.key}
+                                    className={`flex cursor-pointer items-start gap-3 rounded border px-3 py-2 text-sm ${outcome === o.key
+                                        ? "border-[#ff8800] bg-[#ff8800]/10"
+                                        : "border-white/15 hover:border-white/30"
+                                        }`}
+                                >
+                                    <input
+                                        type="radio"
+                                        name="outcome"
+                                        value={o.key}
+                                        checked={outcome === o.key}
+                                        onChange={() => setOutcome(o.key)}
+                                        className="mt-1 accent-[#ff8800]"
+                                    />
+                                    <span>
+                                        <span className="block font-medium">{o.label}</span>
+                                        <span className="block text-xs text-white/50">{o.hint}</span>
+                                    </span>
+                                </label>
+                            ))}
+                        </div>
+
+                        <p className="mt-4 text-xs text-white/40">
+                            Das lässt sich hier nicht rückgängig machen.
+                        </p>
+
+                        {closeError && <p className="mt-3 text-sm text-red-400">{closeError}</p>}
+
+                        <div className="mt-6 flex justify-end gap-2">
+                            <button
+                                onClick={() => setCloseTarget(null)}
+                                className="rounded border border-white/15 px-4 py-2 text-sm text-white/70"
+                            >
+                                Abbrechen
+                            </button>
+                            <button
+                                onClick={submitClose}
+                                disabled={!outcome || closeBusy}
+                                className="rounded bg-[#ff8800] px-4 py-2 text-sm font-medium text-black disabled:opacity-40"
+                            >
+                                {closeBusy ? "Speichern…" : "Abschließen"}
                             </button>
                         </div>
                     </div>
