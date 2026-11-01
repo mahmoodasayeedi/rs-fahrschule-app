@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import AssignInstructorButton from "./AssignInstructorButton";
-
+import TheoryLessonsControl from "./TheoryLessonsControl";
 const MIN_KEYS = [
     "theory_lessons_minimum_b",
     "uberland_lessons_minimum_b",
@@ -333,6 +333,10 @@ export default async function FahrschuelerDetailPage({
                             label="Theoriestunden"
                             value={progress?.theory_lessons_completed ?? 0}
                             min={minByKey.get("theory_lessons_minimum_b") ?? 0}
+                        />
+                        <TheoryLessonsControl
+                            studentId={id}
+                            current={progress?.theory_lessons_completed ?? 0}
                         />
                         <ProgressBar
                             label="Überlandfahrten"
