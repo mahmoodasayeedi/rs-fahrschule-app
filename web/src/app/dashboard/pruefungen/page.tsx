@@ -1,4 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
+import NewExamButton from "./NewExamButton";
+import Link from "next/link";
 
 const TYPE_LABEL: Record<string, string> = {
     theory: "Theorieprüfung",
@@ -92,7 +94,12 @@ function EventTable({
                                     </span>
                                 </td>
                                 <td className="px-4 py-3">
-                                    <span className="block">{e.title}</span>
+                                    <Link
+    href={`/dashboard/pruefungen/${e.id}`}
+    className="block hover:text-[#ff8800]"
+>
+    {e.title}
+</Link>
                                     <span className="block text-xs text-white/40">
                                         {TYPE_LABEL[e.exam_type] ?? e.exam_type}
                                     </span>
@@ -153,10 +160,15 @@ export default async function PruefungenPage() {
 
     return (
         <div>
-            <h1 className="text-2xl font-semibold">Prüfungen</h1>
-            <p className="mt-1 text-sm text-white/50">
-                Prüfungstermine mit Teilnehmern und Mitfahrern
-            </p>
+                <div className="flex items-start justify-between gap-4">
+                <div>
+                    <h1 className="text-2xl font-semibold">Prüfungen</h1>
+                    <p className="mt-1 text-sm text-white/50">
+                        Prüfungstermine mit Teilnehmern und Mitfahrern
+                    </p>
+                </div>
+                <NewExamButton />
+            </div>
 
             <h2 className="mt-8 mb-3 text-sm font-medium text-white/70">
                 Bevorstehend
