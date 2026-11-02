@@ -1,57 +1,149 @@
 # Open Questions & Current Assumptions
 
-Status: DRAFT — pending client confirmation from RS Fahrschule
-Last updated: 2026-09-11
+Last updated: 2026-11-02
 
-Each item below is a decision made WITHOUT explicit client confirmation.
-When RS Fahrschule answers, update this file AND the linked code/schema in the same commit.
+Every item here is a decision made WITHOUT explicit client confirmation, unless it is under
+RESOLVED. When RS Fahrschule answers, move the item to RESOLVED with the date and what they
+said, and change the code in the same commit.
 
 ---
 
-## 1. Instructor appointment confirmation authority
-**Question:** Can instructors confirm/reject/modify appointments themselves, or only Office has final say?
-**Current assumption:** Instructors CAN confirm/reject/modify appointments for their own assigned students. Office and Admin can do so for anyone.
-**Affects:** RLS policy on `appointments` table (UPDATE permission for instructor role).
+## RESOLVED
 
-## 2. Internal notes visibility to instructors
-**Question:** Do instructors see all internal notes on their assigned students, or a filtered subset (e.g. excluding payment remarks)?
-**Current assumption:** Instructors see notes tagged `training`-related only. Notes tagged `financial` or `office` are Office/Admin only.
-**Affects:** `student_notes` table — will need a `visibility` or `category` column.
+- **App language:** German only for launch. Confirmed by the client, 2026-09-15.
+- **Accounts:** the school creates accounts. Self-registration is also allowed, but the
+  account stays `pending` until Office confirms it in person within 14 days, otherwise it is
+  deleted automatically. Answered by the client. The window is `registration_activation_window_days`
+  in `business_config`.
+- **Exam events:** instructors may create them for their own students, not only Office.
+- **Supabase region:** the project was first created in Ireland by mistake. On 2026-09-14 it was
+  recreated in Frankfurt (`eu-central-1`) and the old project deleted.
 
-## 3. Student profile edit rights
-**Question:** Can students edit their own profile (phone/email/address) directly, or is it office-managed with a "request change" flow?
-**Current assumption:** Students can edit phone/email directly. Address/name changes go through a "request change" flow reviewed by Office.
-**Affects:** RLS UPDATE policy on `student_records`, and whether we need a `profile_change_requests` table in MVP.
+---
 
-## 4. Data retention policy
-**Question:** How long is a former/inactive student's data kept? (GDPR — needs legal input, not just our decision.)
-**Current assumption:** No automated deletion in MVP. Data is retained indefinitely until RS Fahrschule provides a written retention policy. Manual deletion by Admin only.
-**Affects:** No cron/deletion job in MVP. Flagged as a compliance gap RS Fahrschule must resolve before go-live.
+## OPEN QUESTIONS (default chosen, waiting for the client)
 
-## 5. App UI language(s) for MVP
-**Question:** What language(s) should the app itself use? (Theory exam is offered in 13 languages per rs-fahrschule.de, but that's for the official exam, not necessarily this app.)
-**Current assumption:** German only for MVP. Localization architecture (i18n-ready strings) is built in from day one so additional languages can be added later without refactoring, but no second language ships at MVP.
-**Affects:** All user-facing string handling — use a translation-key system, not hardcoded German strings.
+### 1. Instructor confirmation authority
 
-## 6. Document visibility to students
-**Question:** Are uploaded documents (Dokumente in the Karteikarte) visible to the student who owns them, or internal-only?
-**Current assumption:** Not applicable yet — document upload is a POSTPONED feature (Phase 13+ per PDF section 13), not in MVP. Will be decided before that phase starts.
+Instructors can confirm, reject and propose alternatives for appointments assigned to them.
+Office and Admin can act on any appointment. "Modify time directly" is not built; proposing
+an alternative covers it.
+Affects: RLS on `appointments`.
 
-## 7. Special lesson sub-types
-**Question:** Are Überland, Autobahn, and Nachtfahrten the only "Sonderfahrten" sub-types needed for MVP progress tracking?
-**Current assumption:** Yes — only those three, matching what's explicitly named in the PDF (section 3).
-**Affects:** `training_progress` table's lesson-type enum.
+### 2. Notes visible to instructors
 
-## 8. 24-hour rule configuration
-**Question:** Is the 24h cancellation cutoff measured from lesson start time, fixed platform-wide, or could it vary per lesson type in future?
-**Current assumption:** Measured from lesson start time. Stored as a single configurable value (not hardcoded), so RS Fahrschule (Admin role) could change it later without a code deploy — but only one global value in MVP, not per-lesson-type.
-**Affects:** A `business_config` table with a `cancellation_window_hours` value, read by both frontend and RLS/server logic.
+Instructors see only `training` notes on their assigned students. `office` and `financial`
+notes are Office/Admin only.
+Affects: `student_notes.category`.
+
+### 3. Student profile edits
+
+No screen lets students edit their data. Name, phone and address changes would go through Office.
+Affects: whether a change-request flow is needed.
+
+### 4. Data retention (GDPR, needs legal input)
+
+No automatic deletion except the 14-day cleanup of unconfirmed registrations. All other data
+is kept until Admin deletes it manually. This is a compliance gap to close before go-live.
+
+### 5. Documents
+
+The `documents` table exists, but upload is postponed. Students have no access to it yet.
+Decide visibility before upload is built.
+
+### 6. Lesson types
+
+Überland, Autobahn, night and special lessons are tracked. Students can only request `normal`
+lessons from the app. **Ask:** should students request the other types?
+
+### 7. 24-hour cancellation
+
+Measured from lesson start, one global value (`cancellation_window_hours`, currently 24),
+same for all lesson types. Time is German local time.
+
+### 8. Lesson hours
+
+The request form offers 30-minute slots from 07:00 to 20:00. This is not from the PDF.
+**Ask:** what are the real lesson hours?
+
+### 9. Legal minimums for other licence classes
+
+Class B minimums are stored: 14 theory, 5 Überland, 4 Autobahn, 3 night
+(Fahrschüler-Ausbildungsordnung). Other classes are not covered. **Ask:** do they differ?
+
+### 10. Invoice numbering
+
+Sequential per year, format `2026-0001`, generated by the database. The Finanzen screens are
+not built yet. **Ask the tax advisor** before go-live.
+
+### 11. Excused absence
+
+An excused absence is stored as `cancelled` with reason `excused`. It does not count as a
+lesson. **Ask:** may it still be billed?
+
+### 12. Theory lessons
+
+Office sets the total directly (0 to 99). Instructors cannot. **Ask:** should instructors
+enter them?
+
+### 13. More than one instructor per student
+
+A new assignment replaces the active one. **Ask:** can a student have two instructors?
+
+---
+
+## DESIGN DECISIONS (settled while building, change only with a migration)
+
+### Security and data
+
+- Roles are a database enum: `admin`, `office`, `instructor`, `student`. New signups are always
+  `student`; the role is never read from signup data.
+- Instructor assignments keep history (`is_active = false`, never deleted). `student_records.assigned_instructor_id`
+  is a copy kept in sync by a trigger.
+- An instructor can read the name of any student who has an appointment with them. Students can
+  read the names of active instructors so they can pick one.
+- Payments, invoices, pricing and balances are Office/Admin only. Prices are changed by Admin only.
+- Notifications are created only by the system. There is no manual messaging in the MVP.
+- The audit log is readable by Admin only and records payments, invoices, notes, role changes,
+  office cancellations, instructor assignments and theory-lesson changes.
+- Database functions raise German error messages, because the apps show them unchanged.
+
+### Appointments
+
+- One `appointments` table with a status field. The student picks the lesson type; Office can adjust it.
+- Rejection reasons shown to students go in `student_facing_reason`. `office_notes` stays internal.
+- No-show sets status `no_show`. Excused sets status `cancelled` with reason `excused`. Neither counts
+  as a lesson; only `completed` raises the counters.
+- The assigned instructor, Office or Admin can close out a confirmed lesson that has already started.
+
+### Exams
+
+- Only confirmed, active students with the role `student` can be added to an exam.
+- Adding a student sets the matching exam status to `scheduled`. A re-registration after `failed`
+  also counts as scheduled (a retake). `passed` is never overwritten.
+- Removing a student resets the status to `not_scheduled` only if they have no other open exam of
+  the same type. A previous `failed` can't be restored in that case.
+- Results can be entered from the exam day onward, once per participant. This is a screen rule, not a
+  database rule. Corrections are done in SQL until a correction function exists.
+- A pass or fail is copied into the student's progress. A no-show changes nothing.
+- The student chooses "I travel myself" or "ride with the school". No seat limit is enforced.
+
+---
+
+## KNOWN GAPS BEFORE GO-LIVE
+
+- Email confirmation is off for testing and the default Supabase mailer is used. Turn
+  confirmation back on and set up real SMTP.
+- The registration checkbox refers to a Datenschutzerklärung that doesn't exist. It needs a real,
+  professionally reviewed text and a link.
+- The mobile app uses web-only shortcuts (`location.reload`, `window.confirm`). Replace them before
+  the native build.
+- Reminders 48 and 24 hours before a lesson need a scheduled job and are not built.
+- Security-definer functions written before 2026-09-29 don't set `search_path`. Fix in the security review.
 
 ---
 
 ## How to use this file
-- New assumption discovered mid-build? Add it here immediately, don't just code around it silently.
-- Client answers a question? Move it to a "RESOLVED" section below with the date and source (email/call/etc.), and update the linked code in the same PR/commit.
 
-
-Update ASSUMPTIONS.md — log that we corrected the region assumption from Ireland to Frankfurt, with today's date, so this is documented rather than just fixed silentl
+- New assumption discovered mid-build? Add it here in the same commit as the code.
+- Client answers a question? Move it to RESOLVED with the date and source.
