@@ -8,7 +8,7 @@ const NAV = [
     { label: "Termine", href: "/dashboard/termine", enabled: true },
     { label: "Registrierungen", href: "/dashboard/registrierungen", enabled: true },
     { label: "Fahrschüler", href: "/dashboard/fahrschueler", enabled: true },
-    { label: "Prüfungen", href: "/dashboard/pruefungen", enabled: false },
+    { label: "Prüfungen", href: "/dashboard/pruefungen", enabled: true },
     { label: "Finanzen", href: "/dashboard/finanzen", enabled: false },
     { label: "Nachrichten", href: "/dashboard/nachrichten", enabled: false },
 ];
