@@ -597,7 +597,7 @@ export default function StudentDashboardScreen() {
                     Prüfung
                 </Text>
 
-                <View style={styles.examCard}>
+                <TouchableOpacity style={styles.examCard} onPress={() => router.push('/student/pruefungen')}>
                     <View style={styles.examIcon}>
                         <Ionicons
                             name="school-outline"
@@ -623,7 +623,7 @@ export default function StudentDashboardScreen() {
                         size={22}
                         color="#7d7d82"
                     />
-                </View>
+                </TouchableOpacity>
 
                 {/* Notifications */}
                 <View style={styles.sectionHeader}>
