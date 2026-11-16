@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import FahrschuelerTable, { type StudentRow } from "./FahrschuelerTable";
 
+
 function personName(p: any): string {
     if (!p) return "—";
     return [p.first_name, p.last_name].filter(Boolean).join(" ") || "—";

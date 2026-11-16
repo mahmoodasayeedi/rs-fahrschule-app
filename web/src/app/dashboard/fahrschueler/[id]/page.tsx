@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import AssignInstructorButton from "./AssignInstructorButton";
 import TheoryLessonsControl from "./TheoryLessonsControl";
+import RecordPaymentButton from "./RecordPaymentButton";
+
 const MIN_KEYS = [
     "theory_lessons_minimum_b",
     "uberland_lessons_minimum_b",
@@ -58,6 +60,12 @@ const LESSON_LABEL: Record<string, string> = {
     autobahn: "Autobahn",
     night: "Nacht",
     special: "Sonderfahrt",
+};
+const PAYMENT_LABEL: Record<string, string> = {
+    cash: "Bar",
+    bank_transfer: "Überweisung",
+    card: "Karte",
+    other: "Sonstiges",
 };
 
 function eur(n: number) {
@@ -183,6 +191,14 @@ export default async function FahrschuelerDetailPage({
         .eq("student_id", id)
         .order("requested_date", { ascending: false })
         .order("requested_time", { ascending: false })
+        .limit(10);
+    
+    const { data: payments } = await supabase
+        .from("payments")
+        .select("id, amount, payment_date, payment_method, internal_remarks")
+        .eq("student_id", id)
+        .order("payment_date", { ascending: false })
+        .order("created_at", { ascending: false })
         .limit(10);
 
     const { data: instructor } = record?.assigned_instructor_id
@@ -325,7 +341,45 @@ export default async function FahrschuelerDetailPage({
                     </div>
                 </Card>
             </div>
-
+                                <div className="mt-4">
+                <Card title="Zahlungen">
+                    <div className="mb-4 flex justify-end">
+                        <RecordPaymentButton studentId={id} />
+                    </div>
+                    {(payments ?? []).length === 0 ? (
+                        <p className="text-sm text-white/40">Noch keine Zahlungen erfasst.</p>
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left text-sm">
+                                <thead className="font-mono text-xs uppercase text-white/40">
+                                    <tr>
+                                        <th className="py-2 pr-4">Datum</th>
+                                        <th className="py-2 pr-4">Betrag</th>
+                                        <th className="py-2 pr-4">Art</th>
+                                        <th className="py-2 pr-4">Bemerkung</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {(payments ?? []).map((p: any) => (
+                                        <tr key={p.id} className="border-t border-white/5">
+                                            <td className="py-2 pr-4 font-mono">
+                                                {new Date(p.payment_date).toLocaleDateString("de-DE")}
+                                            </td>
+                                            <td className="py-2 pr-4 font-mono">{eur(Number(p.amount))}</td>
+                                            <td className="py-2 pr-4 text-white/70">
+                                                {PAYMENT_LABEL[String(p.payment_method)] ?? String(p.payment_method)}
+                                            </td>
+                                            <td className="py-2 pr-4 text-white/50">
+                                                {p.internal_remarks ?? "—"}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </Card>
+            </div>
             <div className="mt-4">
                 <Card title="Ausbildungsfortschritt (gesetzliche Mindestwerte Klasse B)">
                     <div className="space-y-5">
