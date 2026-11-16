@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import AssignInstructorButton from "./AssignInstructorButton";
 import TheoryLessonsControl from "./TheoryLessonsControl";
 import RecordPaymentButton from "./RecordPaymentButton";
+import InvoicesCard from "./InvoicesCard";
 
 const MIN_KEYS = [
     "theory_lessons_minimum_b",
@@ -379,6 +380,9 @@ export default async function FahrschuelerDetailPage({
                         </div>
                     )}
                 </Card>
+            </div>
+            <div className="mt-4">
+                <InvoicesCard studentId={id} />
             </div>
             <div className="mt-4">
                 <Card title="Ausbildungsfortschritt (gesetzliche Mindestwerte Klasse B)">
