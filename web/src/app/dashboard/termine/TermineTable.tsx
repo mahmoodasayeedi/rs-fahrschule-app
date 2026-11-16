@@ -66,6 +66,10 @@ export default function TermineTable({
     const [outcome, setOutcome] = useState("");
     const [closeBusy, setCloseBusy] = useState(false);
     const [closeError, setCloseError] = useState<string | null>(null);
+    const [rejectTarget, setRejectTarget] = useState<Row | null>(null);
+    const [rejectReason, setRejectReason] = useState("");
+    const [decideBusy, setDecideBusy] = useState(false);
+    const [decideError, setDecideError] = useState<string | null>(null);
 
     const visible = useMemo(() => {
         const list = filter === "all" ? rows : rows.filter((r) => r.status === filter);
@@ -125,7 +129,61 @@ export default function TermineTable({
         setCloseTarget(null);
         router.refresh();
     }
+    async function confirmRequest(r: Row) {
+        if (!r.instructorId) {
+            setDecideError("Bitte zuerst einen Fahrlehrer zuweisen.");
+            return;
+        }
+        if (!window.confirm(`${r.studentName}, ${r.date} ${r.time}: Termin bestätigen?`)) return;
 
+        setDecideBusy(true);
+        setDecideError(null);
+        const supabase = createClient();
+        const { data, error } = await supabase
+            .from("appointments")
+            .update({ status: "confirmed" })
+            .eq("id", r.id)
+            .eq("status", "requested")
+            .select("id");
+        setDecideBusy(false);
+
+        if (error) {
+            setDecideError(error.message);
+            return;
+        }
+        if (!data || data.length === 0) {
+            setDecideError("Diese Anfrage wurde bereits bearbeitet.");
+        }
+        router.refresh();
+    }
+
+    async function submitReject() {
+        if (!rejectTarget) return;
+        setDecideBusy(true);
+        setDecideError(null);
+        const supabase = createClient();
+        const { data, error } = await supabase
+            .from("appointments")
+            .update({
+                status: "rejected",
+                student_facing_reason: rejectReason.trim() || null,
+            })
+            .eq("id", rejectTarget.id)
+            .eq("status", "requested")
+            .select("id");
+        setDecideBusy(false);
+
+        if (error) {
+            setDecideError(error.message);
+            return;
+        }
+        if (!data || data.length === 0) {
+            setDecideError("Diese Anfrage wurde bereits bearbeitet.");
+        }
+        setRejectTarget(null);
+        setRejectReason("");
+        router.refresh();
+    }
     return (
         <>
             <div className="mt-6 flex flex-wrap gap-2">
@@ -142,7 +200,7 @@ export default function TermineTable({
                     </button>
                 ))}
             </div>
-
+                {decideError && <p className="mt-4 text-sm text-red-400">{decideError}</p>}
             <div className="mt-4 overflow-x-auto rounded border border-white/10">
                 <table className="w-full text-left text-sm">
                     <thead className="border-b border-white/10 font-mono text-xs uppercase text-white/40">
@@ -185,6 +243,29 @@ export default function TermineTable({
                                 </td>
                                                                 <td className="whitespace-nowrap px-4 py-3 text-right">
                                     <div className="flex justify-end gap-2">
+                                        {r.status === "requested" && (
+    <>
+        <button
+            onClick={() => confirmRequest(r)}
+            disabled={decideBusy}
+            className="rounded bg-[#ff8800] px-3 py-1 text-xs font-medium text-black disabled:opacity-40"
+        >
+            Bestätigen
+        </button>
+        <button
+            onClick={() => {
+                setRejectTarget(r);
+                setRejectReason("");
+                setDecideError(null);
+            }}
+            disabled={decideBusy}
+            className="rounded border border-white/15 px-3 py-1 text-xs text-white/70 hover:border-red-400 hover:text-red-400 disabled:opacity-40"
+        >
+            Ablehnen
+        </button>
+    </>
+)}
+
                                         {r.status === "confirmed" && hasStarted(r) && (
                                             <button
                                                 onClick={() => openClose(r)}
@@ -322,6 +403,44 @@ export default function TermineTable({
                     </div>
                 </div>
             )}
+
+            {rejectTarget && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+        <div className="w-full max-w-md rounded border border-white/15 bg-[#0d0d0f] p-6">
+            <h2 className="text-lg font-semibold">Anfrage ablehnen</h2>
+            <p className="mt-1 text-sm text-white/50">
+                {rejectTarget.studentName} · {rejectTarget.date} · {rejectTarget.time}
+            </p>
+
+            <label className="mt-5 block text-xs uppercase text-white/40">
+                Begründung (sieht der Fahrschüler, optional)
+            </label>
+            <textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                rows={3}
+                placeholder="z. B. Termin bereits vergeben"
+                className="mt-1 w-full rounded border border-white/15 bg-transparent px-3 py-2 text-sm"
+            />
+
+            <div className="mt-6 flex justify-end gap-2">
+                <button
+                    onClick={() => setRejectTarget(null)}
+                    className="rounded border border-white/15 px-4 py-2 text-sm text-white/70"
+                >
+                    Abbrechen
+                </button>
+                <button
+                    onClick={submitReject}
+                    disabled={decideBusy}
+                    className="rounded bg-[#ff8800] px-4 py-2 text-sm font-medium text-black disabled:opacity-40"
+                >
+                    {decideBusy ? "Speichern…" : "Ablehnen"}
+                </button>
+            </div>
+        </div>
+    </div>
+)}
         </>
     );
 }
