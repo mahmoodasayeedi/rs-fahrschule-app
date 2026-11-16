@@ -9,8 +9,9 @@ const NAV = [
     { label: "Registrierungen", href: "/dashboard/registrierungen", enabled: true },
     { label: "Fahrschüler", href: "/dashboard/fahrschueler", enabled: true },
     { label: "Prüfungen", href: "/dashboard/pruefungen", enabled: true },
-    { label: "Finanzen", href: "/dashboard/finanzen", enabled: false },
+    { label: "Finanzen", href: "/dashboard/finanzen", enabled: true },
     { label: "Nachrichten", href: "/dashboard/nachrichten", enabled: false },
+   
 ];
 
 export default function Sidebar({
