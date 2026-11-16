@@ -6,67 +6,78 @@ import { createClient } from "@/lib/supabase/client";
 
 export default function PriceRow({
     id,
-    label,
+    name,
     price,
+    canEdit,
 }: {
     id: string;
-    label: string;
+    name: string;
     price: number;
+    canEdit: boolean;
 }) {
     const router = useRouter();
-    const [value, setValue] = useState(price.toFixed(2).replace(".", ","));
+    const [value, setValue] = useState(String(price ?? 0).replace(".", ","));
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [saved, setSaved] = useState(false);
 
-    const parsed = Math.round(Number(value.replace(",", ".")) * 100) / 100;
-    const changed = Number.isFinite(parsed) && parsed !== price;
+    const parsed = Number(value.replace(",", "."));
+    const valid = value.trim() !== "" && Number.isFinite(parsed) && parsed >= 0;
+    const changed = valid && parsed !== Number(price);
 
     async function save() {
-        if (!Number.isFinite(parsed) || parsed < 0 || parsed > 99999) {
-            setError("Ungültiger Preis.");
-            return;
-        }
+        if (!valid) return;
         setBusy(true);
         setError(null);
-
+        setSaved(false);
         const supabase = createClient();
-        const { data, error: updateError } = await supabase
+        const { data, error } = await supabase
             .from("services_pricing")
-            .update({ default_price: parsed, updated_at: new Date().toISOString() })
+            .update({ default_price: parsed })
             .eq("id", id)
             .select("id");
-
         setBusy(false);
-
-        if (updateError || !data || data.length === 0) {
-            setError("Nicht gespeichert. Nur Administratoren dürfen Preise ändern.");
-            return;
-        }
+        if (error) return setError(error.message);
+        if (!data || data.length === 0)
+            return setError("Keine Berechtigung zum Ändern.");
+        setSaved(true);
         router.refresh();
     }
 
     return (
-        <tr className="border-t border-white/5">
-            <td className="py-2 pr-4">{label}</td>
-            <td className="py-2 pr-4">
-                <input
-                    value={value}
-                    onChange={(e) => setValue(e.target.value)}
-                    inputMode="decimal"
-                    className="w-28 rounded border border-white/15 bg-[#0d0d0f] px-2 py-1 text-right font-mono text-sm outline-none focus:border-[#ff8800]"
-                />{" "}
-                €
-            </td>
-            <td className="py-2 text-right">
-                <button
-                    type="button"
-                    onClick={save}
-                    disabled={!changed || busy}
-                    className="rounded bg-[#ff8800] px-3 py-1 text-xs font-bold text-black disabled:opacity-40"
-                >
-                    {busy ? "Speichern…" : "Speichern"}
-                </button>
-                {error && <span className="ml-2 text-xs text-red-400">{error}</span>}
+        <tr className="border-t border-white/10">
+            <td className="px-4 py-3 text-sm">{name}</td>
+            <td className="px-4 py-3 text-right">
+                {canEdit ? (
+                    <div className="flex items-center justify-end gap-2">
+                        <input
+                            value={value}
+                            onChange={(e) => {
+                                setValue(e.target.value);
+                                setSaved(false);
+                            }}
+                            inputMode="decimal"
+                            className="w-24 rounded border border-white/15 bg-[#171719] px-2 py-1 text-right font-mono text-sm outline-none focus:border-[#ff8800]"
+                        />
+                        <span className="text-sm text-white/50">€</span>
+                        <button
+                            onClick={save}
+                            disabled={!changed || busy}
+                            className="rounded border border-white/15 px-3 py-1 text-xs text-white/70 hover:border-[#ff8800] hover:text-[#ff8800] disabled:opacity-30"
+                        >
+                            {busy ? "…" : "Speichern"}
+                        </button>
+                        {saved && <span className="text-xs text-[#79d495]">Gespeichert</span>}
+                        {error && <span className="text-xs text-[#ff5c5c]">{error}</span>}
+                    </div>
+                ) : (
+                    <span className="font-mono text-sm">
+                        {Number(price).toLocaleString("de-DE", {
+                            minimumFractionDigits: 2,
+                        })}{" "}
+                        €
+                    </span>
+                )}
             </td>
         </tr>
     );

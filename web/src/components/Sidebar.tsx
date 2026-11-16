@@ -11,7 +11,6 @@ const NAV = [
     { label: "Prüfungen", href: "/dashboard/pruefungen", enabled: true },
     { label: "Finanzen", href: "/dashboard/finanzen", enabled: true },
     { label: "Nachrichten", href: "/dashboard/nachrichten", enabled: false },
-   
 ];
 
 export default function Sidebar({
