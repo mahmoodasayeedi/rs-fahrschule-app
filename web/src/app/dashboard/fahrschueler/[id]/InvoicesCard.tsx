@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import CreateInvoiceButton from "./CreateInvoiceButton";
 
@@ -51,6 +52,7 @@ export default async function InvoicesCard({ studentId }: { studentId: string })
                             <th className="py-2 font-normal">Datum</th>
                             <th className="py-2 font-normal">Status</th>
                             <th className="py-2 text-right font-normal">Betrag</th>
+                            <th className="py-2 pl-4"></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -62,6 +64,9 @@ export default async function InvoicesCard({ studentId }: { studentId: string })
                                 </td>
                                 <td className="py-2">{STATUS_LABEL[i.status] ?? i.status}</td>
                                 <td className="py-2 text-right font-mono">{eur(i.total_amount)}</td>
+                                <td className="py-2 pl-4 text-right">
+                                    <Link href={`/dashboard/rechnungen/${i.id}`} className="text-xs text-[#ff8800] hover:underline">PDF</Link>
+                                </td>
                             </tr>
                         ))}
                     </tbody>

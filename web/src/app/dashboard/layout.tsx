@@ -34,9 +34,9 @@ export default async function DashboardLayout({
         "Benutzer";
 
     return (
-        <div className="flex min-h-screen bg-[#0d0d0f] text-white">
+        <div className="flex min-h-screen bg-[#0d0d0f] text-white print:block print:bg-white print:text-black">
             <Sidebar userName={userName} role={profile.role} />
-            <main className="flex-1 overflow-auto p-8">{children}</main>
+            <main className="flex-1 overflow-auto p-8 print:overflow-visible print:p-0">{children}</main>
         </div>
     );
 }

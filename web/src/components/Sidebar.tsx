@@ -23,7 +23,7 @@ export default function Sidebar({
     const pathname = usePathname();
 
     return (
-        <aside className="flex h-screen w-60 shrink-0 flex-col border-r border-white/10 bg-[#0d0d0f]">
+        <aside className="flex h-screen print:hidden w-60 shrink-0 flex-col border-r border-white/10 bg-[#0d0d0f]">
             <div className="px-5 py-6">
                 <div className="font-mono text-xs uppercase tracking-widest text-[#ff8800]">
                     RS Fahrschule
