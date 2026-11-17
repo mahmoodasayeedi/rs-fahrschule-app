@@ -35,3 +35,5 @@ Ergänzung zur ersten Fragenliste. Wo wir bereits eine Annahme getroffen haben, 
 20. **Minderjährige:** Wie wird die Zustimmung der Erziehungsberechtigten bisher geregelt?
 21. **Auftragsverarbeitung:** Wer schließt die Verträge mit den technischen Dienstleistern ab?
 22. **Erste Konten:** Namen und E-Mail-Adressen für Administrator- und Büro-Konten zum Start.
+23. **Kontakt per Telefon und WhatsApp:** Die Fahrlehrer können Fahrschüler aus der App anrufen oder per WhatsApp anschreiben (mit der bei der Anmeldung angegebenen Nummer). Ist das erwünscht und datenschutzrechtlich in Ordnung? Welche Nummer nutzen die Fahrlehrer (privat oder Firmenhandy)?
+24. **Absage durch den Fahrlehrer:** Der Fahrlehrer kann einen bestätigten Termin absagen. Der Fahrschüler wird automatisch benachrichtigt und muss nichts bezahlen. Passt das so? Soll ein Ersatztermin automatisch vom Büro angeboten werden?
