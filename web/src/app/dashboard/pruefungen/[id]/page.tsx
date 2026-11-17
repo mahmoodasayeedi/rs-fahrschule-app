@@ -97,7 +97,7 @@ export default async function PruefungDetailPage({
         .sort((a, b) => a.name.localeCompare(b.name, "de"));
         
     const rideCount = participants.filter((p) => p.travel_choice === "with_fahrschule").length;
-    const openCount = participants.filter((p) => p.travel_choice === null).length;
+    const openCount = participants.filter((p) => p.travel_choice === null && p.result === "pending").length;
 
     return (
         <div className="max-w-4xl">

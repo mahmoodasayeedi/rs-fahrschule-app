@@ -38,7 +38,8 @@ function countLine(list: Participant[]) {
     if (list.length === 0) return "Noch keine Teilnehmer";
 
     const ride = list.filter((p) => p.travel_choice === "with_fahrschule").length;
-    const open = list.filter((p) => p.travel_choice === null).length;
+    // Only participants whose exam result is still pending can have an open travel choice.
+    const open = list.filter((p) => p.travel_choice === null && p.result === "pending").length;
 
     const parts = [
         `${list.length} ${list.length === 1 ? "Teilnehmer" : "Teilnehmer"}`,
