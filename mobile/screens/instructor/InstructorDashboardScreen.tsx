@@ -13,6 +13,8 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { openCall, openMaps, openWhatsApp } from '../../lib/contact';
+import { confirmAction } from '../../lib/confirm';
 import { supabase } from '../../lib/supabase';
 
 const ORANGE = '#ff8800';
@@ -72,6 +74,7 @@ type AppointmentRow = {
     student_note: string | null;
     student_id: string;
     studentName: string;
+    studentPhone: string | null;
 };
 
 type AlternativeSlot = { date: string; time: string };
@@ -98,6 +101,10 @@ export default function InstructorDashboardScreen() {
     const [finishableLessons, setFinishableLessons] = useState<AppointmentRow[]>([]);
     const [finishError, setFinishError] = useState('');
     const [confirmError, setConfirmError] = useState('');
+    const [cancelTarget, setCancelTarget] = useState<AppointmentRow | null>(null);
+    const [cancelReason, setCancelReason] = useState('');
+    const [cancelBusy, setCancelBusy] = useState(false);
+    const [cancelError, setCancelError] = useState('');
 
     async function handleLogout() {
         setMenuVisible(false);
@@ -132,13 +139,15 @@ export default function InstructorDashboardScreen() {
         const studentIds = [...new Set(allRows.map((r) => r.student_id))];
 
         let namesById: Record<string, string> = {};
+        let phonesById: Record<string, string | null> = {};
         if (studentIds.length > 0) {
             const { data: students } = await supabase
                 .from('profiles')
-                .select('id, first_name, last_name')
+                .select('id, first_name, last_name, phone')
                 .in('id', studentIds);
 
             if (students) {
+                phonesById = Object.fromEntries(students.map((s) => [s.id, s.phone ?? null]));
                 namesById = Object.fromEntries(
                     students.map((s) => [s.id, `${s.first_name} ${s.last_name}`.trim() || 'Unbekannt'])
                 );
@@ -146,7 +155,11 @@ export default function InstructorDashboardScreen() {
         }
 
         const withNames = (rows: typeof allRows) =>
-            rows.map((r) => ({ ...r, studentName: namesById[r.student_id] ?? 'Unbekannt' }));
+            rows.map((r) => ({
+                ...r,
+                studentName: namesById[r.student_id] ?? 'Unbekannt',
+                studentPhone: phonesById[r.student_id] ?? null,
+            }));
 
         setPendingRequests(withNames(requestedResult.data ?? []));
         const confirmedWithNames = withNames(confirmedResult.data ?? []);
@@ -201,6 +214,29 @@ setConfirmedLessons(confirmedWithNames.filter((r) => !hasStarted(r)).slice(0, 10
         setRejectingAppointment(null);
         await loadDashboard();
         setActioningId(null);
+    }
+
+    async function submitCancelLesson() {
+        if (!cancelTarget) return;
+        const ok = await confirmAction(
+            `Fahrstunde mit ${cancelTarget.studentName} wirklich absagen? Der Fahrschüler wird benachrichtigt.`,
+            'Absagen'
+        );
+        if (!ok) return;
+        setCancelBusy(true);
+        setCancelError('');
+        const { error } = await supabase.rpc('instructor_cancel_appointment', {
+            p_appointment_id: cancelTarget.id,
+            p_reason: cancelReason.trim() || null,
+        });
+        setCancelBusy(false);
+        if (error) {
+            setCancelError(error.message);
+            return;
+        }
+        setCancelTarget(null);
+        setCancelReason('');
+        await loadDashboard();
     }
 
     function openProposeModal(appointment: AppointmentRow) {
@@ -418,12 +454,77 @@ setConfirmedLessons(confirmedWithNames.filter((r) => !hasStarted(r)).slice(0, 10
                             <InfoRow icon="calendar-outline" text={formatGermanDate(lesson.requested_date)} />
                             <InfoRow icon="time-outline" text={formatTimeRange(lesson.requested_time, lesson.duration_minutes)} />
                             <InfoRow icon="location-outline" text={`Abholung: ${lesson.pickup_location}`} />
+
+                            <View style={styles.contactRow}>
+                                {lesson.studentPhone ? (
+                                    <>
+                                        <TouchableOpacity style={styles.contactButton} onPress={() => openCall(lesson.studentPhone!)}>
+                                            <Ionicons name="call-outline" size={16} color={ORANGE} />
+                                            <Text style={styles.contactText}>Anrufen</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity style={styles.contactButton} onPress={() => openWhatsApp(lesson.studentPhone!)}>
+                                            <Ionicons name="logo-whatsapp" size={16} color={ORANGE} />
+                                            <Text style={styles.contactText}>WhatsApp</Text>
+                                        </TouchableOpacity>
+                                    </>
+                                ) : null}
+                                <TouchableOpacity style={styles.contactButton} onPress={() => openMaps(lesson.pickup_location)}>
+                                    <Ionicons name="navigate-outline" size={16} color={ORANGE} />
+                                    <Text style={styles.contactText}>Navigation</Text>
+                                </TouchableOpacity>
+                            </View>
+
+                            <TouchableOpacity
+                                style={styles.cancelLessonButton}
+                                onPress={() => {
+                                    setCancelTarget(lesson);
+                                    setCancelReason('');
+                                    setCancelError('');
+                                }}
+                            >
+                                <Text style={styles.cancelLessonText}>Termin absagen</Text>
+                            </TouchableOpacity>
                         </View>
                     ))
                 )}
 
                 <Text style={styles.footer}>RS Fahrschule</Text>
             </ScrollView>
+
+            {/* Cancel lesson modal */}
+            <Modal visible={cancelTarget !== null} transparent animationType="fade" onRequestClose={() => setCancelTarget(null)}>
+                <Pressable style={styles.modalOverlay} onPress={() => setCancelTarget(null)}>
+                    <Pressable style={styles.formModalCard} onPress={(e) => e.stopPropagation()}>
+                        <Text style={styles.modalTitle}>Fahrstunde absagen</Text>
+
+                        <Text style={styles.modalLabel}>
+                            {cancelTarget?.studentName} · {cancelTarget ? formatGermanDate(cancelTarget.requested_date) : ''}. Der Fahrschüler wird automatisch benachrichtigt. Grund (optional, sieht der Fahrschüler):
+                        </Text>
+
+                        <TextInput
+                            value={cancelReason}
+                            onChangeText={setCancelReason}
+                            placeholder="z. B. Krankheit"
+                            placeholderTextColor="#777777"
+                            multiline
+                            maxLength={300}
+                            style={styles.modalTextArea}
+                        />
+
+                        {cancelError ? <Text style={styles.proposeErrorText}>{cancelError}</Text> : null}
+
+                        <View style={styles.modalActionRow}>
+                            <TouchableOpacity style={styles.modalCancelButton} onPress={() => setCancelTarget(null)}>
+                                <Text style={styles.modalCancelText}>Zurück</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity style={styles.modalSubmitButton} onPress={submitCancelLesson} disabled={cancelBusy}>
+                                <Text style={styles.modalSubmitText}>{cancelBusy ? '…' : 'Absagen'}</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </Pressable>
+                </Pressable>
+            </Modal>
 
             {/* Reject modal */}
             <Modal visible={rejectModalVisible} transparent animationType="fade" onRequestClose={() => setRejectModalVisible(false)}>
@@ -575,6 +676,11 @@ const styles = StyleSheet.create({
     infoText: { color: '#a5a5aa', fontSize: 12, flex: 1 },
 
     actionRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
+    contactRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+    contactButton: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: '#3a3a3f', borderRadius: 18, paddingHorizontal: 12, paddingVertical: 8 },
+    contactText: { color: '#ffffff', fontSize: 13, fontWeight: '700' },
+    cancelLessonButton: { marginTop: 12, alignSelf: 'flex-start' },
+    cancelLessonText: { color: '#ff5c5c', fontSize: 13, fontWeight: '800' },
     actionButton: { flex: 1, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
 
     rejectButton: { backgroundColor: 'transparent', borderWidth: 2, borderColor: '#ff5c5c' },
