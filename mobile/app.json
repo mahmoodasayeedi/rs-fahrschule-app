@@ -26,6 +26,13 @@
     "plugins": [
       "expo-router",
       "expo-status-bar"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "fa28b9a3-8be2-46e3-a107-893e41646460"
+      }
+    },
+    "owner": "mahmoodas"
   }
 }
