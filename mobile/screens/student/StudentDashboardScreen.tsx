@@ -420,7 +420,7 @@ export default function StudentDashboardScreen() {
                         Nächste Fahrstunde
                     </Text>
 
-                    <TouchableOpacity>
+                    <TouchableOpacity onPress={() => router.push('/student/meine-termine')}>
                         <Text style={styles.sectionLink}>
                             Alle Termine
                         </Text>
@@ -571,24 +571,28 @@ export default function StudentDashboardScreen() {
                         icon="calendar-outline"
                         title="Meine Termine"
                         subtitle="Termine ansehen"
+                        href="/student/meine-termine"
                     />
 
                     <DashboardTile
                         icon="stats-chart-outline"
                         title="Fortschritt"
                         subtitle="Ausbildungsstand"
+                        href="/student/fortschritt"
                     />
 
                     <DashboardTile
                         icon="school-outline"
                         title="Prüfungen"
                         subtitle="Termine & Status"
+                        href="/student/pruefungen"
                     />
 
                     <DashboardTile
                         icon="notifications-outline"
                         title="Mitteilungen"
                         subtitle="Neuigkeiten"
+                        href="/student/mitteilungen"
                     />
                 </View>
 
@@ -631,7 +635,7 @@ export default function StudentDashboardScreen() {
                         Mitteilungen
                     </Text>
 
-                    <TouchableOpacity>
+                    <TouchableOpacity onPress={() => router.push('/student/mitteilungen')}>
                         <Text style={styles.sectionLink}>
                             Alle anzeigen
                         </Text>
@@ -700,13 +704,19 @@ function DashboardTile({
     icon,
     title,
     subtitle,
+    href,
 }: {
     icon: keyof typeof Ionicons.glyphMap;
     title: string;
     subtitle: string;
+    href?: string;
 }) {
+    const router = useRouter();
     return (
-        <TouchableOpacity style={styles.tile}>
+        <TouchableOpacity
+            style={styles.tile}
+            onPress={href ? () => router.push(href as any) : undefined}
+        >
             <View style={styles.tileIcon}>
                 <Ionicons
                     name={icon}

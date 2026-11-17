@@ -1,5 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import {
+    ActivityIndicator,
     SafeAreaView,
     ScrollView,
     StyleSheet,
@@ -7,698 +10,245 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { supabase } from '../../lib/supabase';
 
 const ORANGE = '#ff8800';
 const BACKGROUND = '#0d0d0f';
 const CARD = '#171719';
-const BORDER = '#303034';
+const BORDER = '#2f2f33';
 
-type AppointmentStatus =
-    | 'angefragt'
-    | 'bestätigt'
-    | 'alternative'
-    | 'abgelehnt'
-    | 'storniert'
-    | 'durchgeführt'
-    | 'nicht_erschienen';
-
-type Appointment = {
-    id: number;
-    day: string;
-    month: string;
-    dateText: string;
-    time: string;
-    duration: string;
-    instructor: string;
-    pickup: string;
-    destination: string;
-    status: AppointmentStatus;
+const STATUS: Record<string, { text: string; color: string }> = {
+    requested: { text: 'Angefragt', color: '#ff8800' },
+    confirmed: { text: 'Bestätigt', color: '#79d495' },
+    rejected: { text: 'Abgelehnt', color: '#ff5c5c' },
+    alternative_proposed: { text: 'Alternative vorgeschlagen', color: '#ff8800' },
+    cancelled: { text: 'Storniert', color: '#8f8f94' },
+    completed: { text: 'Durchgeführt', color: '#79d495' },
+    no_show: { text: 'Nicht erschienen', color: '#ff5c5c' },
 };
 
-const appointments: Appointment[] = [
-    {
-        id: 1,
-        day: '18',
-        month: 'SEP',
-        dateText: '18. September 2026',
-        time: '14:00 – 15:30 Uhr',
-        duration: '90 Min.',
-        instructor: 'Herr Müller',
-        pickup: 'RS Fahrschule',
-        destination: 'Germersheim Bahnhof',
-        status: 'bestätigt',
-    },
-    {
-        id: 2,
-        day: '22',
-        month: 'SEP',
-        dateText: '22. September 2026',
-        time: '10:00 – 11:30 Uhr',
-        duration: '90 Min.',
-        instructor: 'Frau Schneider',
-        pickup: 'Germersheim Bahnhof',
-        destination: 'RS Fahrschule',
-        status: 'angefragt',
-    },
-    {
-        id: 3,
-        day: '25',
-        month: 'SEP',
-        dateText: '25. September 2026',
-        time: '16:00 – 17:30 Uhr',
-        duration: '90 Min.',
-        instructor: 'Herr Müller',
-        pickup: 'RS Fahrschule',
-        destination: 'Bellheim',
-        status: 'alternative',
-    },
-];
+const LESSON: Record<string, string> = {
+    normal: 'Übungsstunde',
+    uberland: 'Überlandfahrt',
+    autobahn: 'Autobahnfahrt',
+    night: 'Nachtfahrt',
+    special: 'Sonderfahrt',
+};
+
+type Appt = {
+    id: string;
+    date: string;
+    time: string;
+    duration: number;
+    lessonType: string;
+    status: string;
+    pickup: string | null;
+    instructorId: string | null;
+    instructorName: string;
+};
+
+const hhmm = (v: string | null) => (v ? String(v).slice(0, 5) : '');
+const germanDate = (iso: string) => {
+    const [y, m, d] = iso.split('-');
+    return `${d}.${m}.${y}`;
+};
+
+function endTime(start: string, minutes: number): string {
+    const [h, m] = start.split(':').map(Number);
+    const total = h * 60 + m + minutes;
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${pad(Math.floor(total / 60) % 24)}:${pad(total % 60)}`;
+}
+
+function germanToday(): string {
+    return new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Berlin' });
+}
 
 export default function MeineTermineScreen() {
-    return (
-        <SafeAreaView style={styles.safeArea}>
-            <ScrollView
-                contentContainerStyle={styles.container}
-                showsVerticalScrollIndicator={false}
-            >
-                {/* Header */}
-                <View style={styles.header}>
-                    <TouchableOpacity style={styles.backButton}>
-                        <Ionicons
-                            name="arrow-back"
-                            size={22}
-                            color="#ffffff"
-                        />
+    const router = useRouter();
+    const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState('');
+    const [appts, setAppts] = useState<Appt[]>([]);
+    const [cancellingId, setCancellingId] = useState<string | null>(null);
+    const [cancelError, setCancelError] = useState('');
+
+    const load = useCallback(async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const { data, error } = await supabase
+            .from('appointments')
+            .select('id, requested_date, requested_time, duration_minutes, lesson_type, status, pickup_location, instructor_id')
+            .eq('student_id', user.id)
+            .order('requested_date', { ascending: false })
+            .order('requested_time', { ascending: false })
+            .limit(100);
+
+        if (error) {
+            setLoadError('Termine konnten nicht geladen werden.');
+            setLoading(false);
+            return;
+        }
+
+        const rows = data ?? [];
+        const ids = Array.from(new Set(rows.map((r) => r.instructor_id).filter(Boolean))) as string[];
+        const names = new Map<string, string>();
+        if (ids.length > 0) {
+            const { data: people } = await supabase
+                .from('profiles')
+                .select('id, first_name, last_name')
+                .in('id', ids);
+            (people ?? []).forEach((p) =>
+                names.set(p.id, `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim())
+            );
+        }
+
+        setAppts(
+            rows.map((r) => ({
+                id: r.id,
+                date: r.requested_date,
+                time: hhmm(r.requested_time),
+                duration: r.duration_minutes,
+                lessonType: String(r.lesson_type),
+                status: String(r.status),
+                pickup: r.pickup_location,
+                instructorId: r.instructor_id,
+                instructorName: r.instructor_id ? names.get(r.instructor_id) || '—' : 'Noch nicht zugewiesen',
+            }))
+        );
+        setLoadError('');
+        setLoading(false);
+    }, []);
+
+    useEffect(() => {
+        load();
+    }, [load]);
+
+    async function cancel(a: Appt) {
+        setCancellingId(a.id);
+        setCancelError('');
+        const { error } = await supabase.rpc('cancel_appointment', { appointment_id: a.id });
+        setCancellingId(null);
+        if (error) {
+            setCancelError(error.message);
+            return;
+        }
+        await load();
+    }
+
+    const today = germanToday();
+    const upcoming = appts
+        .filter((a) => a.date >= today && !['cancelled', 'rejected', 'completed', 'no_show'].includes(a.status))
+        .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+    const past = appts.filter((a) => !upcoming.includes(a));
+
+    function renderCard(a: Appt, canCancel: boolean) {
+        const s = STATUS[a.status] ?? { text: a.status, color: '#8f8f94' };
+        return (
+            <View key={a.id} style={styles.card}>
+                <View style={styles.cardTop}>
+                    <Text style={styles.cardDate}>{germanDate(a.date)}</Text>
+                    <Text style={[styles.badge, { color: s.color, borderColor: s.color }]}>{s.text}</Text>
+                </View>
+                <Text style={styles.cardLine}>
+                    {a.time} – {endTime(a.time, a.duration)} Uhr · {a.duration} Min.
+                </Text>
+                <Text style={styles.cardLine}>{LESSON[a.lessonType] ?? a.lessonType}</Text>
+                <Text style={styles.cardMuted}>Fahrlehrer: {a.instructorName}</Text>
+                {a.pickup ? <Text style={styles.cardMuted}>Abholort: {a.pickup}</Text> : null}
+                {a.status === 'alternative_proposed' && (
+                    <Text style={styles.hint}>
+                        Die Fahrschule hat Alternativen vorgeschlagen. Bitte auf der Startseite auswählen.
+                    </Text>
+                )}
+                {canCancel && a.status === 'confirmed' && (
+                    <TouchableOpacity
+                        style={styles.cancelButton}
+                        onPress={() => cancel(a)}
+                        disabled={cancellingId === a.id}
+                    >
+                        <Text style={styles.cancelText}>
+                            {cancellingId === a.id ? 'Wird storniert…' : 'Termin stornieren'}
+                        </Text>
                     </TouchableOpacity>
+                )}
+            </View>
+        );
+    }
 
-                    <View style={styles.headerText}>
-                        <Text style={styles.title}>
-                            Meine Termine
-                        </Text>
-
-                        <Text style={styles.subtitle}>
-                            Fahrstunden und Terminanfragen
-                        </Text>
+    return (
+        <SafeAreaView style={[styles.safeArea, loading && styles.center]}>
+            {loading ? (
+                <ActivityIndicator color={ORANGE} />
+            ) : (
+                <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+                    <View style={styles.header}>
+                        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+                            <Ionicons name="arrow-back" size={22} color="#ffffff" />
+                        </TouchableOpacity>
+                        <View>
+                            <Text style={styles.headerTitle}>Meine Termine</Text>
+                            <Text style={styles.headerSubtitle}>Deine Fahrstunden und Anfragen</Text>
+                        </View>
                     </View>
 
-                    <TouchableOpacity style={styles.addButton}>
-                        <Ionicons
-                            name="add"
-                            size={25}
-                            color="#ffffff"
-                        />
-                    </TouchableOpacity>
-                </View>
+                    {loadError ? <Text style={styles.errorText}>{loadError}</Text> : null}
+                    {cancelError ? <Text style={styles.errorText}>{cancelError}</Text> : null}
 
-                {/* Info */}
-                <View style={styles.infoCard}>
-                    <Ionicons
-                        name="information-circle-outline"
-                        size={24}
-                        color={ORANGE}
-                    />
+                    <Text style={styles.sectionTitle}>Anstehend</Text>
+                    {upcoming.length === 0 ? (
+                        <View style={styles.emptyCard}>
+                            <Text style={styles.emptyText}>Keine anstehenden Termine.</Text>
+                        </View>
+                    ) : (
+                        upcoming.map((a) => renderCard(a, true))
+                    )}
 
-                    <Text style={styles.infoText}>
-                        Angefragte Termine sind erst verbindlich, nachdem die
-                        Fahrschule sie bestätigt hat.
-                    </Text>
-                </View>
-
-                {/* Upcoming */}
-                <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>
-                        Kommende Termine
-                    </Text>
-
-                    <Text style={styles.count}>
-                        {appointments.length}
-                    </Text>
-                </View>
-
-                {appointments.map((appointment) => (
-                    <AppointmentCard
-                        key={appointment.id}
-                        appointment={appointment}
-                    />
-                ))}
-
-                {/* Past */}
-                <Text style={styles.sectionTitlePast}>
-                    Vergangene Termine
-                </Text>
-
-                <AppointmentCard
-                    appointment={{
-                        id: 4,
-                        day: '10',
-                        month: 'SEP',
-                        dateText: '10. September 2026',
-                        time: '13:00 – 14:30 Uhr',
-                        duration: '90 Min.',
-                        instructor: 'Herr Müller',
-                        pickup: 'RS Fahrschule',
-                        destination: 'Speyer',
-                        status: 'durchgeführt',
-                    }}
-                />
-
-                <AppointmentCard
-                    appointment={{
-                        id: 5,
-                        day: '05',
-                        month: 'SEP',
-                        dateText: '5. September 2026',
-                        time: '09:00 – 10:30 Uhr',
-                        duration: '90 Min.',
-                        instructor: 'Frau Schneider',
-                        pickup: 'Germersheim Bahnhof',
-                        destination: 'RS Fahrschule',
-                        status: 'storniert',
-                    }}
-                />
-
-                <Text style={styles.footer}>
-                    RS Fahrschule
-                </Text>
-            </ScrollView>
+                    <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Vergangen</Text>
+                    {past.length === 0 ? (
+                        <View style={styles.emptyCard}>
+                            <Text style={styles.emptyText}>Noch keine vergangenen Termine.</Text>
+                        </View>
+                    ) : (
+                        past.map((a) => renderCard(a, false))
+                    )}
+                </ScrollView>
+            )}
         </SafeAreaView>
     );
 }
 
-function AppointmentCard({
-    appointment,
-}: {
-    appointment: Appointment;
-}) {
-    return (
-        <TouchableOpacity
-            style={styles.appointmentCard}
-            activeOpacity={0.85}
-        >
-            <View style={styles.cardTop}>
-                <View style={styles.dateBox}>
-                    <Text style={styles.day}>
-                        {appointment.day}
-                    </Text>
-
-                    <Text style={styles.month}>
-                        {appointment.month}
-                    </Text>
-                </View>
-
-                <View style={styles.mainContent}>
-                    <View style={styles.titleRow}>
-                        <Text style={styles.lessonTitle}>
-                            Fahrstunde
-                        </Text>
-
-                        <StatusBadge status={appointment.status} />
-                    </View>
-
-                    <Text style={styles.dateFull}>
-                        {appointment.dateText}
-                    </Text>
-
-                    <InfoRow
-                        icon="time-outline"
-                        text={appointment.time}
-                    />
-
-                    <InfoRow
-                        icon="hourglass-outline"
-                        text={appointment.duration}
-                    />
-
-                    <InfoRow
-                        icon="person-outline"
-                        text={appointment.instructor}
-                    />
-                </View>
-            </View>
-
-            <View style={styles.divider} />
-
-            <View style={styles.routeRow}>
-                <View style={styles.routeIconColumn}>
-                    <View style={styles.routeDotStart} />
-                    <View style={styles.routeLine} />
-                    <View style={styles.routeDotEnd} />
-                </View>
-
-                <View style={styles.routeContent}>
-                    <View style={styles.routeItem}>
-                        <Text style={styles.routeLabel}>
-                            Abholung
-                        </Text>
-
-                        <Text style={styles.routeValue}>
-                            {appointment.pickup}
-                        </Text>
-                    </View>
-
-                    <View style={styles.routeItem}>
-                        <Text style={styles.routeLabel}>
-                            Fahrtende
-                        </Text>
-
-                        <Text style={styles.routeValue}>
-                            {appointment.destination}
-                        </Text>
-                    </View>
-                </View>
-            </View>
-
-            {appointment.status === 'alternative' && (
-                <View style={styles.alternativeBox}>
-                    <Ionicons
-                        name="swap-horizontal-outline"
-                        size={20}
-                        color={ORANGE}
-                    />
-
-                    <View style={styles.alternativeContent}>
-                        <Text style={styles.alternativeTitle}>
-                            Alternative vorgeschlagen
-                        </Text>
-
-                        <Text style={styles.alternativeText}>
-                            Die Fahrschule hat einen anderen Termin vorgeschlagen.
-                        </Text>
-                    </View>
-
-                    <Ionicons
-                        name="chevron-forward"
-                        size={21}
-                        color="#999999"
-                    />
-                </View>
-            )}
-
-            <View style={styles.cardFooter}>
-                <Text style={styles.detailsText}>
-                    Details anzeigen
-                </Text>
-
-                <Ionicons
-                    name="chevron-forward"
-                    size={19}
-                    color={ORANGE}
-                />
-            </View>
-        </TouchableOpacity>
-    );
-}
-
-function InfoRow({
-    icon,
-    text,
-}: {
-    icon: keyof typeof Ionicons.glyphMap;
-    text: string;
-}) {
-    return (
-        <View style={styles.infoRow}>
-            <Ionicons
-                name={icon}
-                size={15}
-                color="#96969b"
-            />
-
-            <Text style={styles.infoValue}>
-                {text}
-            </Text>
-        </View>
-    );
-}
-
-function StatusBadge({
-    status,
-}: {
-    status: AppointmentStatus;
-}) {
-    const config = {
-        angefragt: {
-            text: 'Angefragt',
-            background: '#3b2a14',
-            color: '#ffb44c',
-        },
-
-        bestätigt: {
-            text: 'Bestätigt',
-            background: '#173821',
-            color: '#7bdc99',
-        },
-
-        alternative: {
-            text: 'Alternative',
-            background: '#33244a',
-            color: '#b998ff',
-        },
-
-        abgelehnt: {
-            text: 'Abgelehnt',
-            background: '#451d20',
-            color: '#ff8c92',
-        },
-
-        storniert: {
-            text: 'Storniert',
-            background: '#333336',
-            color: '#b5b5ba',
-        },
-
-        durchgeführt: {
-            text: 'Durchgeführt',
-            background: '#17352f',
-            color: '#74d8bd',
-        },
-
-        nicht_erschienen: {
-            text: 'Nicht erschienen',
-            background: '#451d20',
-            color: '#ff8c92',
-        },
-    };
-
-    const item = config[status];
-
-    return (
-        <View
-            style={[
-                styles.statusBadge,
-                {
-                    backgroundColor: item.background,
-                },
-            ]}
-        >
-            <Text
-                style={[
-                    styles.statusText,
-                    {
-                        color: item.color,
-                    },
-                ]}
-            >
-                {item.text}
-            </Text>
-        </View>
-    );
-}
-
 const styles = StyleSheet.create({
-    safeArea: {
-        flex: 1,
-        backgroundColor: BACKGROUND,
-    },
-
-    container: {
-        paddingHorizontal: 22,
-        paddingTop: 18,
-        paddingBottom: 40,
-    },
-
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 24,
-    },
-
+    safeArea: { flex: 1, backgroundColor: BACKGROUND },
+    center: { alignItems: 'center', justifyContent: 'center' },
+    container: { paddingHorizontal: 22, paddingTop: 18, paddingBottom: 40 },
+    header: { flexDirection: 'row', alignItems: 'center', marginBottom: 26 },
     backButton: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        backgroundColor: CARD,
-        borderWidth: 1,
-        borderColor: BORDER,
-        alignItems: 'center',
-        justifyContent: 'center',
+        width: 44, height: 44, borderRadius: 22, backgroundColor: CARD,
+        borderWidth: 1, borderColor: '#3a3a3f', alignItems: 'center', justifyContent: 'center', marginRight: 13,
     },
-
-    headerText: {
-        flex: 1,
-        marginLeft: 13,
+    headerTitle: { color: '#ffffff', fontSize: 24, fontWeight: '900' },
+    headerSubtitle: { color: '#8f8f94', fontSize: 13, marginTop: 3 },
+    sectionTitle: { color: '#ffffff', fontSize: 19, fontWeight: '800', marginBottom: 13 },
+    emptyCard: { backgroundColor: CARD, borderWidth: 1, borderColor: BORDER, borderRadius: 18, padding: 18 },
+    emptyText: { color: '#8c8c91', fontSize: 14, lineHeight: 20 },
+    errorText: { color: '#ff5c5c', fontSize: 14, marginBottom: 14 },
+    card: {
+        backgroundColor: CARD, borderWidth: 1, borderColor: BORDER, borderRadius: 18,
+        padding: 16, marginBottom: 14,
     },
-
-    title: {
-        color: '#ffffff',
-        fontSize: 25,
-        fontWeight: '900',
+    cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+    cardDate: { color: '#ffffff', fontSize: 17, fontWeight: '800' },
+    badge: {
+        fontSize: 11, fontWeight: '700', borderWidth: 1, borderRadius: 8,
+        paddingHorizontal: 8, paddingVertical: 3, overflow: 'hidden',
     },
-
-    subtitle: {
-        color: '#8d8d92',
-        fontSize: 13,
-        marginTop: 3,
+    cardLine: { color: '#ffffff', fontSize: 14, marginTop: 2 },
+    cardMuted: { color: '#8f8f94', fontSize: 13, marginTop: 4 },
+    hint: { color: ORANGE, fontSize: 13, marginTop: 10, lineHeight: 18 },
+    cancelButton: {
+        marginTop: 14, borderWidth: 1, borderColor: '#ff5c5c', borderRadius: 12,
+        paddingVertical: 11, alignItems: 'center',
     },
-
-    addButton: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        backgroundColor: ORANGE,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-
-    infoCard: {
-        flexDirection: 'row',
-        alignItems: 'flex-start',
-        backgroundColor: '#1c1814',
-        borderWidth: 1,
-        borderColor: '#4c351e',
-        borderRadius: 16,
-        padding: 15,
-        marginBottom: 28,
-        gap: 10,
-    },
-
-    infoText: {
-        flex: 1,
-        color: '#aaaaaf',
-        fontSize: 13,
-        lineHeight: 19,
-    },
-
-    sectionHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 14,
-    },
-
-    sectionTitle: {
-        color: '#ffffff',
-        fontSize: 19,
-        fontWeight: '800',
-    },
-
-    count: {
-        marginLeft: 9,
-        color: ORANGE,
-        fontSize: 13,
-        fontWeight: '800',
-        backgroundColor: '#211a13',
-        paddingHorizontal: 9,
-        paddingVertical: 4,
-        borderRadius: 12,
-    },
-
-    sectionTitlePast: {
-        color: '#ffffff',
-        fontSize: 19,
-        fontWeight: '800',
-        marginTop: 30,
-        marginBottom: 14,
-    },
-
-    appointmentCard: {
-        backgroundColor: CARD,
-        borderWidth: 1,
-        borderColor: BORDER,
-        borderRadius: 19,
-        padding: 16,
-        marginBottom: 14,
-    },
-
-    cardTop: {
-        flexDirection: 'row',
-    },
-
-    dateBox: {
-        width: 60,
-        height: 68,
-        borderRadius: 15,
-        backgroundColor: '#211a13',
-        borderWidth: 1,
-        borderColor: '#51361b',
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginRight: 13,
-    },
-
-    day: {
-        color: ORANGE,
-        fontSize: 25,
-        fontWeight: '900',
-    },
-
-    month: {
-        color: '#d0d0d3',
-        fontSize: 11,
-        fontWeight: '700',
-    },
-
-    mainContent: {
-        flex: 1,
-    },
-
-    titleRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        gap: 8,
-    },
-
-    lessonTitle: {
-        color: '#ffffff',
-        fontSize: 16,
-        fontWeight: '800',
-    },
-
-    dateFull: {
-        color: '#a0a0a5',
-        fontSize: 12,
-        marginTop: 3,
-        marginBottom: 9,
-    },
-
-    infoRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        marginBottom: 5,
-    },
-
-    infoValue: {
-        color: '#a0a0a5',
-        fontSize: 12,
-        flex: 1,
-    },
-
-    statusBadge: {
-        paddingHorizontal: 9,
-        paddingVertical: 5,
-        borderRadius: 13,
-    },
-
-    statusText: {
-        fontSize: 10,
-        fontWeight: '800',
-    },
-
-    divider: {
-        height: 1,
-        backgroundColor: '#29292d',
-        marginVertical: 15,
-    },
-
-    routeRow: {
-        flexDirection: 'row',
-    },
-
-    routeIconColumn: {
-        width: 20,
-        alignItems: 'center',
-        paddingTop: 5,
-        marginRight: 8,
-    },
-
-    routeDotStart: {
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-        backgroundColor: ORANGE,
-    },
-
-    routeLine: {
-        width: 2,
-        height: 34,
-        backgroundColor: '#4c4c51',
-    },
-
-    routeDotEnd: {
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-        borderWidth: 2,
-        borderColor: ORANGE,
-    },
-
-    routeContent: {
-        flex: 1,
-    },
-
-    routeItem: {
-        marginBottom: 12,
-    },
-
-    routeLabel: {
-        color: '#77777d',
-        fontSize: 11,
-    },
-
-    routeValue: {
-        color: '#dddddf',
-        fontSize: 13,
-        fontWeight: '600',
-        marginTop: 2,
-    },
-
-    alternativeBox: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#201a26',
-        borderWidth: 1,
-        borderColor: '#46345a',
-        borderRadius: 13,
-        padding: 12,
-        marginTop: 5,
-    },
-
-    alternativeContent: {
-        flex: 1,
-        marginLeft: 9,
-    },
-
-    alternativeTitle: {
-        color: '#ffffff',
-        fontSize: 12,
-        fontWeight: '800',
-    },
-
-    alternativeText: {
-        color: '#99999f',
-        fontSize: 11,
-        marginTop: 3,
-    },
-
-    cardFooter: {
-        flexDirection: 'row',
-        justifyContent: 'flex-end',
-        alignItems: 'center',
-        gap: 5,
-        marginTop: 13,
-    },
-
-    detailsText: {
-        color: ORANGE,
-        fontSize: 12,
-        fontWeight: '700',
-    },
-
-    footer: {
-        color: '#68686d',
-        textAlign: 'center',
-        marginTop: 28,
-        fontSize: 12,
-    },
+    cancelText: { color: '#ff5c5c', fontWeight: '700', fontSize: 14 },
 });
