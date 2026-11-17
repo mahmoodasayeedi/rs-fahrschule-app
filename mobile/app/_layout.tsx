@@ -22,7 +22,7 @@ function RouteGuard() {
 
         const currentGroup = segments[0];
         const inProtectedArea = PROTECTED_GROUPS.includes(currentGroup);
-        const onAuthScreen = segments.length === 0 || currentGroup === 'register';
+        const onAuthScreen = !currentGroup || currentGroup === 'register';
 
         if (!session) {
             if (inProtectedArea) router.replace('/');
