@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { supabase } from '../../lib/supabase';
 import { useRouter } from 'expo-router';
+import { confirmAction } from '../../lib/confirm';
 
 const ORANGE = '#ff8800';
 const BACKGROUND = '#0d0d0f';
@@ -114,6 +115,7 @@ type LatestNotification = {
 export default function StudentDashboardScreen() {
     const [menuVisible, setMenuVisible] = useState(false);
     const [loading, setLoading] = useState(true);
+    const [reloadKey, setReloadKey] = useState(0);
     const [firstName, setFirstName] = useState('');
     const [trainingStatus, setTrainingStatus] = useState<string | null>(null);
     const [progressPercent, setProgressPercent] = useState(0);
@@ -135,7 +137,7 @@ export default function StudentDashboardScreen() {
     }
     async function handleCancel() {
         if (!nextLesson) return;
-        const confirmed = window.confirm('Fahrstunde wirklich stornieren?');
+        const confirmed = await confirmAction('Fahrstunde wirklich stornieren?', 'Stornieren');
         if (!confirmed) return;
 
         setCancelling(true);
@@ -148,7 +150,7 @@ export default function StudentDashboardScreen() {
             return;
         }
 
-        location.reload();
+        setReloadKey((k) => k + 1);
     }
     async function handleSelectAlternative(proposalId: string) {
         setSelectingProposalId(proposalId);
@@ -158,8 +160,7 @@ export default function StudentDashboardScreen() {
         if (!error) {
             setAlternativeAppointmentId(null);
             setProposedAlternatives([]);
-            // Simplest reliable way to refresh every card after confirming.
-            location.reload();
+            setReloadKey((k) => k + 1);
         }
     }
     useEffect(() => {
@@ -221,6 +222,14 @@ export default function StudentDashboardScreen() {
             ]);
 
             if (!active) return;
+
+            // Reset cards first so a refresh never leaves stale data behind
+            // (e.g. a lesson that was just cancelled).
+            setNextLesson(null);
+            setUpcomingExam(null);
+            setLatestNotification(null);
+            setAlternativeAppointmentId(null);
+            setProposedAlternatives([]);
 
             setFirstName(profileResult.data?.first_name ?? '');
             setTrainingStatus(recordResult.data?.training_status ?? null);
@@ -342,7 +351,7 @@ export default function StudentDashboardScreen() {
 
         loadDashboardData();
         return () => { active = false; };
-    }, []);
+    }, [reloadKey]);
 
     if (loading) {
         return (
