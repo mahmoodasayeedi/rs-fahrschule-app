@@ -28,7 +28,7 @@ declare
   v_year  int  := extract(year from (now() at time zone 'Europe/Berlin'))::int;
 
   v_admin uuid := '733ecf66-4e54-4c90-bba2-6105c58c316c';
-  v_hans  uuid := '58ec389a-1c60-4163-959d-6e2b7b350f77';  -- Fahrlehrer Hans Müller
+  v_hans  uuid := '58ec389a-1c60-4163-959d-6e2b7b350f77';  -- Fahrlehrer Ibrahim
   v_klaus uuid := '1d9c299d-12de-4efc-8abd-68ca15f2b40d';  -- bisher Areeba Ghani (Fahrlehrer)
   v_lena  uuid := 'cd0d4a23-a56a-4ca4-9245-46bc87d5cbb5';  -- bisher "example s"
   v_max   uuid := '02c87113-486f-4497-9f5c-0be41bfc4ac5';  -- bisher Sarafraz Ghani
@@ -79,7 +79,7 @@ begin
   ---------------------------------------------------------------
   -- 2. Personen und Akten
   ---------------------------------------------------------------
-  update profiles set first_name = 'Hans',  last_name = 'Müller',  phone = '+49 170 0000101', is_active = true where id = v_hans;
+  update profiles set first_name = 'Ibrahim', last_name = '',  phone = '+49 170 0000101', is_active = true where id = v_hans;
   update profiles set first_name = 'Klaus', last_name = 'Richter', phone = '+49 170 0000102', is_active = true where id = v_klaus;
 
   for r in
