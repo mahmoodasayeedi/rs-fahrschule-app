@@ -13,6 +13,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { goBack } from '../../lib/goBack';
 import { supabase } from '../../lib/supabase';
 
 const ORANGE = '#ff8800';
@@ -183,7 +184,7 @@ export default function TerminAnfragenScreen() {
             >
                 {/* Header */}
                 <View style={styles.header}>
-                    <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+                    <TouchableOpacity style={styles.backButton} onPress={() => goBack(router, '/student/dashboard')}>
                         <Ionicons
                             name="arrow-back"
                             size={22}

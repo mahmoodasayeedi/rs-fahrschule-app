@@ -10,6 +10,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { goBack } from '../../lib/goBack';
 import { supabase } from '../../lib/supabase';
 
 const ORANGE = '#ff8800';
@@ -88,7 +89,7 @@ export default function SchuelerListScreen() {
             ) : (
                 <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
                     <View style={styles.header}>
-                        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+                        <TouchableOpacity style={styles.backButton} onPress={() => goBack(router, '/instructor/dashboard')}>
                             <Ionicons name="arrow-back" size={22} color="#ffffff" />
                         </TouchableOpacity>
                         <View>
