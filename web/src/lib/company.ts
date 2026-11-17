@@ -3,7 +3,8 @@
 // before any real invoice is sent.
 export const COMPANY = {
     name: "RS Fahrschule",
-    owner: "[PLATZHALTER Inhaber]",
+    // Source: rs-fahrschule.de/impressum ("Vertreten durch"). Confirm with the client.
+    owner: "Rainer Seidel",
     street: "Lilienstraße 11",
     city: "76726 Germersheim",
     phone: "+49 7274 9710926",
