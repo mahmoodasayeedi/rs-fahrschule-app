@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
@@ -76,6 +77,7 @@ type AppointmentRow = {
 type AlternativeSlot = { date: string; time: string };
 
 export default function InstructorDashboardScreen() {
+    const router = useRouter();
     const [menuVisible, setMenuVisible] = useState(false);
     const [loading, setLoading] = useState(true);
     const [firstName, setFirstName] = useState('');
@@ -95,6 +97,7 @@ export default function InstructorDashboardScreen() {
 
     const [finishableLessons, setFinishableLessons] = useState<AppointmentRow[]>([]);
     const [finishError, setFinishError] = useState('');
+    const [confirmError, setConfirmError] = useState('');
 
     async function handleLogout() {
         setMenuVisible(false);
@@ -161,8 +164,10 @@ setConfirmedLessons(confirmedWithNames.filter((r) => !hasStarted(r)).slice(0, 10
     }, []);
 
     async function handleConfirm(appointmentId: string) {
+        setConfirmError('');
         setActioningId(appointmentId);
-        await supabase.from('appointments').update({ status: 'confirmed' }).eq('id', appointmentId);
+        const { error } = await supabase.from('appointments').update({ status: 'confirmed' }).eq('id', appointmentId);
+        if (error) setConfirmError(error.message);
         await loadDashboard();
         setActioningId(null);
     }
@@ -282,6 +287,16 @@ setConfirmedLessons(confirmedWithNames.filter((r) => !hasStarted(r)).slice(0, 10
                     <Modal visible={menuVisible} transparent animationType="fade" onRequestClose={() => setMenuVisible(false)}>
                         <Pressable style={styles.menuOverlay} onPress={() => setMenuVisible(false)}>
                             <View style={styles.menuCard}>
+                                <TouchableOpacity
+                                    style={styles.menuItem}
+                                    onPress={() => {
+                                        setMenuVisible(false);
+                                        router.push('/instructor/schueler' as any);
+                                    }}
+                                >
+                                    <Ionicons name="people-outline" size={20} color={ORANGE} />
+                                    <Text style={styles.menuItemText}>Meine Fahrschüler</Text>
+                                </TouchableOpacity>
                                 <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
                                     <Ionicons name="log-out-outline" size={20} color={ORANGE} />
                                     <Text style={styles.menuItemText}>Abmelden</Text>
@@ -300,6 +315,8 @@ setConfirmedLessons(confirmedWithNames.filter((r) => !hasStarted(r)).slice(0, 10
                         </View>
                     )}
                 </View>
+
+                {confirmError ? <Text style={styles.proposeErrorText}>{confirmError}</Text> : null}
 
                 {pendingRequests.length === 0 ? (
                     <View style={styles.emptyCard}>
