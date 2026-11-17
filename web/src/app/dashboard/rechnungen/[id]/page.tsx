@@ -56,8 +56,8 @@ export default async function InvoicePage({
             </div>
 
             {invoice.status === "cancelled" && (
-                <div className="mb-4 rounded border border-[#ff5c5c]/40 p-3 text-sm text-[#ff5c5c] print:hidden">
-                    Diese Rechnung ist storniert.
+                <div className="mb-4 rounded border border-[#ff5c5c]/40 p-3 text-sm font-semibold text-[#ff5c5c] print:border-red-600 print:text-red-600">
+                    STORNIERT – diese Rechnung ist nicht mehr gültig.
                 </div>
             )}
 

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import CreateInvoiceButton from "./CreateInvoiceButton";
+import CancelInvoiceButton from "./CancelInvoiceButton";
 
 const STATUS_LABEL: Record<string, string> = {
     draft: "Entwurf",
@@ -65,7 +66,12 @@ export default async function InvoicesCard({ studentId }: { studentId: string })
                                 <td className="py-2">{STATUS_LABEL[i.status] ?? i.status}</td>
                                 <td className="py-2 text-right font-mono">{eur(i.total_amount)}</td>
                                 <td className="py-2 pl-4 text-right">
-                                    <Link href={`/dashboard/rechnungen/${i.id}`} className="text-xs text-[#ff8800] hover:underline">PDF</Link>
+                                    <span className="inline-flex items-start gap-4">
+                                        <Link href={`/dashboard/rechnungen/${i.id}`} className="text-xs text-[#ff8800] hover:underline">PDF</Link>
+                                        {(i.status === "issued" || i.status === "draft") && (
+                                            <CancelInvoiceButton invoiceId={i.id} invoiceNumber={i.invoice_number} />
+                                        )}
+                                    </span>
                                 </td>
                             </tr>
                         ))}
