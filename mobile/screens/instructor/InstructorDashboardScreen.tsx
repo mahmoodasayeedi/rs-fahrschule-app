@@ -237,24 +237,16 @@ setConfirmedLessons(confirmedWithNames.filter((r) => !hasStarted(r)).slice(0, 10
 
         setProposeSubmitting(true);
 
-        const { error: insertError } = await supabase.from('alternative_proposals').insert(
-            parsed.map((p) => ({
-                original_appointment_id: proposingAppointment.id,
-                proposed_date: p.date,
-                proposed_time: p.time,
-            }))
-        );
+        const { error: proposeRpcError } = await supabase.rpc('propose_alternatives', {
+            p_appointment_id: proposingAppointment.id,
+            p_slots: parsed.map((p) => ({ date: p.date, time: p.time })),
+        });
 
-        if (insertError) {
+        if (proposeRpcError) {
             setProposeSubmitting(false);
-            setProposeError('Vorschläge konnten nicht gespeichert werden. Bitte erneut versuchen.');
+            setProposeError(proposeRpcError.message);
             return;
         }
-
-        await supabase
-            .from('appointments')
-            .update({ status: 'alternative_proposed' })
-            .eq('id', proposingAppointment.id);
 
         setProposeSubmitting(false);
         setProposeModalVisible(false);

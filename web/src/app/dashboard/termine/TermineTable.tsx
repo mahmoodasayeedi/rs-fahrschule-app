@@ -70,6 +70,10 @@ export default function TermineTable({
     const [rejectReason, setRejectReason] = useState("");
     const [decideBusy, setDecideBusy] = useState(false);
     const [decideError, setDecideError] = useState<string | null>(null);
+    const [proposeTarget, setProposeTarget] = useState<Row | null>(null);
+    const [slots, setSlots] = useState<{ date: string; time: string }[]>([{ date: "", time: "" }]);
+    const [proposeBusy, setProposeBusy] = useState(false);
+    const [proposeError, setProposeError] = useState<string | null>(null);
 
     const visible = useMemo(() => {
         const list = filter === "all" ? rows : rows.filter((r) => r.status === filter);
@@ -154,6 +158,29 @@ export default function TermineTable({
         if (!data || data.length === 0) {
             setDecideError("Diese Anfrage wurde bereits bearbeitet.");
         }
+        router.refresh();
+    }
+
+    async function submitProposals() {
+        if (!proposeTarget) return;
+        const filled = slots.filter((x) => x.date || x.time);
+        if (filled.length === 0 || filled.some((x) => !x.date || !x.time)) {
+            setProposeError("Bitte Datum und Uhrzeit für jeden Vorschlag ausfüllen.");
+            return;
+        }
+        setProposeBusy(true);
+        setProposeError(null);
+        const supabase = createClient();
+        const { error } = await supabase.rpc("propose_alternatives", {
+            p_appointment_id: proposeTarget.id,
+            p_slots: filled,
+        });
+        setProposeBusy(false);
+        if (error) {
+            setProposeError(error.message);
+            return;
+        }
+        setProposeTarget(null);
         router.refresh();
     }
 
@@ -251,6 +278,17 @@ export default function TermineTable({
             className="rounded bg-[#ff8800] px-3 py-1 text-xs font-medium text-black disabled:opacity-40"
         >
             Bestätigen
+        </button>
+        <button
+            onClick={() => {
+                setProposeTarget(r);
+                setSlots([{ date: "", time: "" }]);
+                setProposeError(null);
+            }}
+            disabled={decideBusy}
+            className="rounded border border-white/15 px-3 py-1 text-xs text-white/70 hover:border-[#ff8800] hover:text-[#ff8800] disabled:opacity-40"
+        >
+            Alternativen
         </button>
         <button
             onClick={() => {
@@ -398,6 +436,67 @@ export default function TermineTable({
                                 className="rounded bg-[#ff8800] px-4 py-2 text-sm font-medium text-black disabled:opacity-40"
                             >
                                 {closeBusy ? "Speichern…" : "Abschließen"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {proposeTarget && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+                    <div className="w-full max-w-md rounded border border-white/15 bg-[#0d0d0f] p-6">
+                        <h2 className="text-lg font-semibold">Alternativen vorschlagen</h2>
+                        <p className="mt-1 text-sm text-white/50">
+                            {proposeTarget.studentName} · gewünscht {proposeTarget.date} · {proposeTarget.time}
+                        </p>
+
+                        <div className="mt-5 space-y-3">
+                            {slots.map((slot, i) => (
+                                <div key={i} className="flex gap-2">
+                                    <input
+                                        type="date"
+                                        value={slot.date}
+                                        onChange={(e) =>
+                                            setSlots(slots.map((x, j) => (j === i ? { ...x, date: e.target.value } : x)))
+                                        }
+                                        className="flex-1 rounded border border-white/15 bg-transparent px-3 py-2 text-sm"
+                                    />
+                                    <input
+                                        type="time"
+                                        value={slot.time}
+                                        onChange={(e) =>
+                                            setSlots(slots.map((x, j) => (j === i ? { ...x, time: e.target.value } : x)))
+                                        }
+                                        className="w-32 rounded border border-white/15 bg-transparent px-3 py-2 text-sm"
+                                    />
+                                </div>
+                            ))}
+                        </div>
+
+                        {slots.length < 3 && (
+                            <button
+                                onClick={() => setSlots([...slots, { date: "", time: "" }])}
+                                className="mt-3 text-sm text-[#ff8800] hover:underline"
+                            >
+                                + weiterer Vorschlag
+                            </button>
+                        )}
+
+                        {proposeError && <div className="mt-4 text-sm text-red-400">{proposeError}</div>}
+
+                        <div className="mt-6 flex justify-end gap-2">
+                            <button
+                                onClick={() => setProposeTarget(null)}
+                                className="rounded border border-white/15 px-4 py-2 text-sm text-white/70"
+                            >
+                                Abbrechen
+                            </button>
+                            <button
+                                onClick={submitProposals}
+                                disabled={proposeBusy}
+                                className="rounded bg-[#ff8800] px-4 py-2 text-sm font-medium text-black disabled:opacity-40"
+                            >
+                                {proposeBusy ? "Speichern…" : "Vorschlagen"}
                             </button>
                         </div>
                     </div>
